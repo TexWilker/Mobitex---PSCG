@@ -3,675 +3,1425 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MobiTex Pro - Gestão Financeira</title>
-    <link rel="icon" type="image/png" href="https://logodix.com/logo/2163282.png">
+    <title>MobiTex PSCG</title>
     <style>
         :root { 
             --primary: #2ecc71; --danger: #e74c3c; --warning: #f1c40f; 
             --dark: #34495e; --black: #2c3e50; --light: #f4f7f6; --info: #3498db; --purple: #9b59b6;
         }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--light); padding: 10px; margin: 0; color: var(--black); padding-bottom: 80px; }
-        .container { max-width: 500px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); margin-top: 20px; }
-        .header-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 25px; }
-        .dash-container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
-        .card { padding: 20px; border-radius: 15px; text-align: center; color: white; background: var(--black); min-height: 80px; display: flex; flex-direction: column; justify-content: center; cursor: pointer; transition: 0.2s; }
-        .card h2 { margin: 5px 0 0 0; font-size: 1.1rem; }
-        .card small { font-size: 0.65rem; text-transform: uppercase; opacity: 0.9; }
-        .card.real { border-bottom: 5px solid var(--primary); }
-        .card.previsto { border-bottom: 5px solid var(--info); cursor: default; }
         
-        .account-dash { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 15px; border: 1px solid #eee; justify-content: center; }
-        .acc-item { text-align: center; min-width: 80px; flex: 1; }
-        .acc-item small { color: #95a5a6; display: block; margin-bottom: 4px; font-size: 0.7rem; }
-        .acc-item strong { display: block; color: var(--black); font-size: 0.85rem; }
-
-        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .btn-action-main { width: 100%; padding: 12px 5px; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 0.8rem; transition: 0.2s; }
-        .btn-action-main span { font-size: 0.75rem; font-weight: 700; }
-        .btn-p-ent { background: #fff; color: var(--primary); border: 2px solid var(--primary); }
-        .btn-p-sai { background: #fff; color: var(--danger); border: 2px solid var(--danger); }
-        .btn-t-ent { background: var(--primary); color: white; }
-        .btn-t-sai { background: var(--danger); color: white; }
-        .btn-dash { background: var(--dark); color: white; grid-column: span 2; padding: 15px; }
-
-        .toggle-container { display: flex; background: #eee; border-radius: 12px; padding: 4px; margin-bottom: 20px; }
-        .toggle-btn { flex: 1; padding: 10px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.3s; background: transparent; color: #777; }
-        .toggle-btn.active.saida { background: var(--danger); color: white; }
-        .toggle-btn.active.entrada { background: var(--primary); color: white; }
-
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
-        .modal-content { background: white; width: 92%; max-width: 450px; padding: 20px; border-radius: 25px; max-height: 85vh; overflow-y: auto; position: relative; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--light); margin: 0; padding-bottom: 100px; color: var(--black); }
+        .container { 
+    width: 90%;          /* Ocupa quase toda a largura em telas pequenas */
+    max-width: 1150px;   /* Limite máximo para não ficar excessivamente largo em monitores grandes */
+    margin: auto; 
+    background: white; 
+    padding: 20px; 
+    border-radius: 0 0 25px 25px; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+}
         
-        .chart-container { display: flex; flex-direction: column; align-items: center; }
-        .donut-chart { width: 180px; height: 180px; border-radius: 50%; position: relative; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        .donut-chart::before { content: ""; position: absolute; width: 120px; height: 120px; background: white; border-radius: 50%; }
-        .donut-label { position: relative; font-weight: bold; font-size: 0.9rem; color: var(--black); text-align: center; }
-        
-        .legend-item { display: flex; justify-content: space-between; padding: 12px; background: #f9f9f9; margin-bottom: 8px; border-radius: 12px; font-size: 0.9rem; border-left: 6px solid transparent; cursor: pointer; transition: 0.2s; }
-        .legend-item:hover { background: #f0f0f0; }
-        .legend-color { width: 14px; height: 14px; border-radius: 4px; display: inline-block; margin-right: 10px; vertical-align: middle; }
+/* Estilo para o botão X de fechar */
+.btn-close-modal {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: #eee;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-weight: bold;
+    color: var(--dark);
+    z-index: 10;
+}
 
+.btn-close-modal:hover {
+    background: #ddd;
+}
+
+/* Garante que o conteúdo do modal tenha posição relativa para o X se basear nele */
+.modal-content {
+    position: relative; /* Adicione ou verifique se já existe */
+    background: white; 
+    width: 95%; 
+    max-width: 480px; 
+    padding: 20px; 
+    border-radius: 20px; 
+    max-height: 92vh; 
+    overflow-y: auto; 
+}
+        /* Dashboards */
+        .scroll-container { display: flex; overflow-x: auto; gap: 12px; padding: 10px; background: #fff; margin-bottom: 15px; border-radius: 15px; border: 1px solid #eee; }
+        .dash-card { min-width: 150px; background: #f8f9fa; padding: 12px; border-radius: 12px; border-left: 4px solid var(--info); cursor: pointer; flex-shrink: 0; }
+        .dash-card.cc { border-left-color: var(--purple); }
+        .dash-card small { font-size: 0.65rem; color: #7f8c8d; display: block; text-transform: uppercase; }
+        .dash-card strong { font-size: 0.95rem; display: block; margin-top: 2px; }
+
+        /* Lista */
+        .list-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: white; }
+        .list-info b { font-size: 0.85rem; display: block; color: var(--dark); text-transform: uppercase; }
+        .list-info span { font-size: 0.75rem; color: #95a5a5; }
+
+        /* Modais */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .modal-content { background: white; width: 95%; max-width: 480px; padding: 20px; border-radius: 20px; max-height: 92vh; overflow-y: auto; }
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .full { grid-column: span 2; }
-        input, select, button { padding: 14px; border: 1px solid #ddd; border-radius: 12px; outline: none; font-size: 0.9rem; }
-        .btn-add-fixo { position: fixed; bottom: 25px; right: 25px; width: 65px; height: 65px; border-radius: 50%; background: var(--primary); color: white; border: none; font-size: 2.2rem; box-shadow: 0 8px 20px rgba(46, 204, 113, 0.4); z-index: 100; cursor: pointer; }
-        .item-row { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; }
-        .nav-mes-modal { display: flex; justify-content: space-between; align-items: center; background: #f0f2f1; padding: 10px; border-radius: 12px; margin-bottom: 15px; }
-        .nav-mes-modal button { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 5px 15px; }
-        .alert-edit { background: #fff3cd; color: #856404; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #ffeeba; }
-    </style>
+        
+        input, select, button { padding: 12px; border: 1px solid #ddd; border-radius: 10px; font-size: 0.9rem; outline: none; box-sizing: border-box; }
+        .label-f { font-size: 0.7rem; font-weight: bold; color: var(--dark); margin: 10px 0 2px 0; display: block; }
+        
+        .rateio-box { background: #f9f9f9; padding: 12px; border-radius: 15px; border: 1px dashed #ccc; margin: 10px 0; }
+        ./* Ajuste para as linhas de rateio ficarem em colunas organizadas */
+.rateio-linha { 
+    display: grid; 
+    grid-template-columns: 1fr 65px 85px 30px; /* Nome, %, Valor e Botão X */
+    gap: 8px; 
+    margin-bottom: 10px; 
+    align-items: center; 
+    background: #fff;
+    padding: 5px;
+    border-radius: 8px;
+}
+
+.rateio-linha select, .rateio-linha input {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 0.85rem;
+    width: 100%;
+}
+
+.rateio-linha button {
+    color: var(--danger);
+    font-weight: bold;
+    cursor: pointer;
+    border: none;
+    background: none;
+    font-size: 1.2rem;
+}
+
+        .btn-add { position: fixed; bottom: 30px; right: 25px; width: 65px; height: 65px; border-radius: 50%; background: var(--primary); color: white; border: none; font-size: 2.5rem; z-index: 100; cursor: pointer; box-shadow: 0 8px 20px rgba(46,204,113,0.4); }
+/* Ajuste para as linhas de configuração de rateio */
+.rateio-linha select, .rateio-linha input {
+    padding: 8px;
+    border-radius: 5px;
+}
+#containerConfigRateio .rateio-linha {
+    grid-template-columns: 1fr 60px 30px; /* Ajuste para o modal de config */
+    margin-bottom: 10px;
+    background: #eee;
+    padding: 5px;
+    border-radius: 8px;
+}    
+/* Estilo comum para os botões flutuantes de exportação */
+.btn-export {
+    position: fixed;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    color: white;
+    border: none;
+    font-size: 1.5rem;
+    z-index: 100;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Posição do botão SAP */
+.btn-sap {
+    bottom: 175px; /* Acima do botão Centro de Custo */
+    right: 32px;
+    background: var(--dark);
+}
+
+/* Posição do botão Centro de Custo (Azul) */
+.btn-cc {
+    bottom: 110px; /* Acima do botão + */
+    right: 32px;
+    background: var(--dark);
+}
+
+/* Ajuste no botão + existente para alinhar o tamanho */
+.btn-add {
+    right: 25px; /* Mantém sua posição original ou ajuste conforme preferir */
+}
+#modalVisualizarArquivo .modal-content {
+    display: flex;
+    flex-direction: column;
+}
+</style>
 </head>
 <body>
+<button class="btn-export btn-sap" onclick="exportarPlanilhaPorMes()" title="Exportar SAP">
+    📋
+</button>
 
-<button class="btn-add-fixo" onclick="abrirParaNovo()">+</button>
+<button class="btn-export btn-cc" onclick="exportarPlanilhaPorCentroCusto()" title="Exportar Centro de Custo">
+    🏢
+</button>
 
-<div class="container">
-    <div class="header-filters">
-        <input type="month" id="filtroMes" onchange="atualizarSaldos()">
-        <select id="filtroConta" onchange="atualizarSaldos()"></select>
+<button class="btn-add" onclick="abrirNovoLançamento()"title="Novo Lançamento">+</button>
+
+    <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h2 style="margin:0; font-size: 1.2rem; color: var(--dark);">MobiTex PSCG</h2>
+        <button onclick="abrirConfig()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;">⚙️</button>
     </div>
 
-    <div class="dash-container">
-        <div class="card real" onclick="abrirAjuste()">
-            <small>Saldo em Mãos</small>
-            <h2 id="saldoReal">R$ 0,00</h2>
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
+        <button onclick="mudarAbaPrincipal('abaResumo')" id="btnAbaResumo" style="flex:1; padding:10px; border:none; border-radius:8px; background:var(--dark); color:white; cursor:pointer; font-weight:bold;">📊 DASHBOARDS</button>
+        <button onclick="mudarAbaPrincipal('abaPedidos')" id="btnAbaPedidos" style="flex:1; padding:10px; border:none; border-radius:8px; background:#eee; color:var(--dark); cursor:pointer; font-weight:bold;">📜 LANÇAMENTOS</button>
+    </div>
+
+    <div id="abaResumo" class="secao-aba">
+    <div class="form-grid" style="margin-bottom: 15px;">
+        <div>
+            <label class="label-f">MÊS DE REFERÊNCIA</label>
+            <input type="month" id="filtroMes" onchange="atualizarSaldos()" style="width: 100%;">
         </div>
-        <div class="card previsto">
-            <small>Previsão Acumulada</small>
-            <h2 id="saldoPrevisto">R$ 0,00</h2>
+        </div>
+
+    <small><b>🏦 CENTROS DE CUSTO</b></small>
+    <div id="dashBancos" class="scroll-container"></div>
+
+    <small><b>📜 CONTAS CONTÁBEIS</b></small>
+    <div id="dashCC" class="scroll-container"></div>
+</div>
+
+<div id="abaPedidos" class="secao-aba" style="display:none;">
+    <div class="form-grid" style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div>
+            <label class="label-f">MÊS DE REFERÊNCIA</label>
+            <input type="month" id="filtroMesPedidos" onchange="sincronizarMes(this.value)" style="width: 100%;">
+        </div>
+        <div>
+            <label class="label-f">BUSCAR LANÇAMENTO</label>
+            <input type="text" id="buscaGeral" placeholder="🔍 Fornecedor..." oninput="atualizarSaldos()" style="width: 100%;">
         </div>
     </div>
 
-    <div id="dashContasLista" class="account-dash"></div>
+    <h3 style="font-size: 0.9rem; color: var(--dark); margin-bottom: 10px;">STATUS DE LANÇAMENTOS</h3>
+    <div id="areaListaPrincipal"></div>
+</div>
 
-    <div class="btn-group">
-        <button class="btn-action-main btn-p-ent" onclick="abrirFiltrado('pendentes', 'entrada')"><b>Receitas Pend.</b><span id="totalPendEntrada">R$ 0,00</span></button>
-        <button class="btn-action-main btn-p-sai" onclick="abrirFiltrado('pendentes', 'saida')"><b>Despesas Pend.</b><span id="totalPendSaida">R$ 0,00</span></button>
-        <button class="btn-action-main btn-t-ent" onclick="abrirFiltrado('mes_total', 'entrada')"><b>Total Receitas</b><span id="totalMesEntrada">R$ 0,00</span></button>
-        <button class="btn-action-main btn-t-sai" onclick="abrirFiltrado('mes_total', 'saida')"><b>Total Despesas</b><span id="totalMesSaida">R$ 0,00</span></button>
-        <button class="btn-action-main btn-dash" onclick="abrirAnaliseGrafica()">📊 Dashboard de Categoria</button>
-        <button class="btn-action-main" style="background:var(--info);color:white" onclick="abrirGerenciarContas()">⚙️ Contas</button>
-        <button class="btn-action-main" style="background:var(--purple);color:white" onclick="abrirGerenciarCategorias()">🏷️ Categorias</button>
-        <button class="btn-action-main" style="background:var(--warning)" onclick="abrirTransferencia()">💸 Transferir</button>
-        <button class="btn-action-main" style="background:var(--black);color:white" onclick="abrirFiltrado('todos')">📂 Extrato</button>
+   
+
+    <div id="abaPedidos" class="secao-aba" style="display:none;">
+        <h3 style="font-size: 0.9rem; color: var(--dark); margin-bottom: 10px;">teste</h3>
+        <div id="areaListaPrincipal"></div>
     </div>
 </div>
 
-<div id="modalDash" class="modal">
-    <div class="modal-content">
-        <div style="display:flex;justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <h3>Resumo Categorias</h3>
-            <button onclick="fecharModal('modalDash')" style="border:none;background:none;font-size:2rem">&times;</button>
-        </div>
-        <div class="toggle-container">
-            <button id="btnDashSaida" class="toggle-btn active saida" onclick="mudarTipoDash('saida')">Despesas</button>
-            <button id="btnDashEntrada" class="toggle-btn entrada" onclick="mudarTipoDash('entrada')">Receitas</button>
-        </div>
-        <div class="nav-mes-modal">
-            <button onclick="navegarPeriodo(-1, 'dash')">◀</button>
-            <strong id="labelMesDash">Mês</strong>
-            <button onclick="navegarPeriodo(1, 'dash')">▶</button>
-        </div>
-        <div class="chart-container">
-            <div id="graficoDonut" class="donut-chart"><span id="donutPercent" class="donut-label"></span></div>
-            <p id="totalGastoDash" style="font-weight:bold; margin-bottom:15px;"></p>
-            <div id="legendaCategorias" style="width:100%"></div>
-        </div>
+    <div id="modalLanc" class="modal">
+        <div class="modal-content">
+	<button class="btn-close-modal" onclick="fecharModal('modalLanc')">&times;</button>
+            <h3 id="modalTitulo" style="margin-top:0">Novo Lançamento</h3>
+            <input type="hidden" id="editId">
+            <div class="form-grid">
+      <div>
+                    <label class="label-f">Nº do Pedido</label>
+                    <input type="text" id="numDoc" style="width: 100%;">
+                </div>
+<div class="full">
+    <label class="label-f">ANEXAR DOCUMENTO (PDF/IMG)</label>
+    <div style="display: flex; gap: 1px;">
+        <input type="file" id="arquivoAnexo" accept="application/pdf, image/*" onchange="previewArquivo()" style="flex-grow: 1;">
+        <button type="button" onclick="abrirArquivoEmTelaCheia()" style="background: var(--info); color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer;">
+            🔍
+        </button>
     </div>
 </div>
 
-<div id="modalListagem" class="modal">
-    <div class="modal-content">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <h3 id="tituloModal"></h3>
-            <button onclick="fecharModal('modalListagem')" style="border:none;background:none;font-size:2rem">&times;</button>
-        </div>
-        <div class="nav-mes-modal">
-            <button onclick="navegarPeriodo(-1, 'lista')">◀</button>
-            <strong id="labelMesModal">Mês</strong>
-            <button onclick="navegarPeriodo(1, 'lista')">▶</button>
-        </div>
-        <div id="listaItems"></div>
+<div id="previewContainer" class="full" style="display:none; margin-top:10px; border: 1px solid #ddd; border-radius: 10px; overflow: hidden;">
+    <div style="background: #eee; padding: 5px; display: flex; justify-content: space-between; align-items: center;">
+        <small><b>Visualização do Anexo</b></small>
+        <button onclick="removerAnexo()" style="background:none; border:none; color:red; cursor:pointer; font-weight:bold;">&times; Remover</button>
     </div>
+    <div id="viewer" style="height: 300px; width: 100%; display: flex; align-items: center; justify-content: center;">
+        </div>
+</div>
+<div>
+    <label class="label-f">ID FORNECEDOR</label>
+    <input type="text" id="idFornecedor" placeholder="Ex: 12345" style="width: 100%;">
+</div>
+    <div class="full">
+        <label class="label-f">FORNECEDOR</label>
+        
+        <input type="text" id="fornecedor" list="listaSugestoesFornecedores" oninput="vincularIdFornecedor(this.value)" style="width: 100%;">
+    </div>
+  
+    <div class="full">
+        <label class="label-f">DESCRIÇÃO</label>
+        <input type="text" id="descricao" placeholder="Ex: Manutenção de ar condicionado" style="width: 100%;">
+    </div>
+   <div>
+    <label class="label-f">DATA DE EMISSÃO</label>
+    <input type="date" id="dataEmissao" style="width: 100%;">
+</div>
+<div>
+    <label class="label-f">Nº NOTA FISCAL (NF)</label>
+    <input type="text" id="numNF" placeholder="000.000" style="width: 100%;">
+</div>
+    <div>
+        <label class="label-f">TIPO DE IMPOSTO</label>
+        <select id="tipoImposto" style="width: 100%;">
+            <option value="I6">I6</option>
+            <option value="I7">I7</option>
+            <option value="C0">C0</option>
+        </select>
+    </div>
+    <div>
+        <label class="label-f">COD. SERVIÇO</label>
+        <input type="text" id="codServico" placeholder="0000" style="width: 100%;">
+    </div>
+    <div id="infoValores" style="background:#f8f9fa; padding:10px; border-radius:10px; margin-bottom:15px; display:none; font-size:0.8rem;">
+        <span id="txtValorParcela"></span> | <strong id="txtValorTotal"></strong>
+    </div>
+   
+
+<div id="infoValores" style="background:#f8f9fa; padding:10px; border-radius:10px; margin-bottom:15px; display:none; font-size:0.8rem;">
+    <span id="txtValorParcela"></span> | <strong id="txtValorTotal"></strong>
+</div>
+<div class="full">
+    <label class="label-f">RECORRÊNCIA (PARCELADO OU FIXO)</label>
+    <select id="recorrencia" onchange="toggleParcelas()" style="width: 100%;">
+        <option value="unico">Lançamento Único</option>
+        <option value="parcelado">Parcelado (Dividir Valor)</option>
+        <option value="fixo">Valor Fixo (Replicar 12 meses)</option>
+    </select>
 </div>
 
-<div id="modalLancamento" class="modal">
-    <div class="modal-content">
-        <h3 id="tituloForm">Registro</h3>
-        <div id="menuAlcanceEdicao" style="display:none;" class="alert-edit">
-            <b>Registro Recorrente. Salvar como?</b>
-            <div class="form-grid" style="margin-top:10px;">
-                <button onclick="executarSalvar('unico')" style="background:var(--info);color:white;">Só este</button>
-                <button onclick="executarSalvar('futuros')" style="background:var(--warning);">Futuros</button>
-                <button onclick="executarSalvar('todos')" style="background:var(--danger);color:white;">Todos</button>
+<div id="divParcelas" class="full" style="display:none;">
+    <label class="label-f">NÚMERO DE PARCELAS</label>
+    <input type="number" id="qtdParcelas" value="1" min="1" style="width: 100%;">
+</div>
+                <div>
+                    <label class="label-f">TIPO</label>
+                    <select id="tipo" style="width: 100%;">
+                        <option value="saida">Saída</option>
+                        <option value="entrada">Entrada</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="label-f">VALOR TOTAL</label>
+                    <input type="number" id="valorTotal" step="0.01" oninput="recalcularRateio()" style="width: 100%;">
+                </div>
+                <div>
+                    <label class="label-f">DATA PAGAMENTO</label>
+                    <input type="date" id="data" style="width: 100%;">
+                </div>
+                <div class="full">
+    <div class="rateio-box">
+        <div style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px;">
+            <small><b>Pedido é Rateado?</b></small>
+            <select id="selectModeloPronto" onchange="aplicarModeloNoLancamento()" style="width: 100%; border: 1px solid var(--info);">
+                <option value="">Escolha o Tipo do Rateio</option>
+            </select>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <small><b>CENTRO DE CUSTO - SIMPLES</b></small>
+            <button onclick="addLinhaRateio()" class="badge" style="background:var(--dark); color:white; border:none; padding:5px 10px; cursor:pointer;">+ Conta</button>
+        </div>
+        <div id="containerRateio"></div>
+    </div>
+</div>
+                <div class="full">
+                    <label class="label-f">CONTA CONTÁBIL</label>
+                    <select id="selCC" style="width: 100%;"></select>
+                </div>
+                <div class="full">
+    <label class="label-f">STATUS</label>
+    <select id="status" style="width: 100%;">
+        <option value="pendente">Pendente</option>
+        <option value="em autorização">Em Autorização</option>
+        <option value="enviado">Enviado</option>
+        <option value="migo">MIGO</option>
+        <option value="miro">MIRO</option>
+        <option value="pago">Pago</option>
+    </select>
+</div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="salvarLançamento()" style="flex: 2; background: var(--dark); color: white; border: none; font-weight: bold;">SALVAR</button>
+                <button id="btnExcluir" onclick="excluirLançamento()" style="flex: 1; background: var(--danger); color: white; border: none; display: none;">EXCLUIR</button>
+                <button onclick="fecharModal('modalLanc')" style="flex: 1; background: #eee; border: none;">VOLTAR</button>
             </div>
         </div>
-        <div id="formPrincipalLancamento" class="form-grid">
-            <input type="hidden" id="editId">
-            <input type="text" id="desc" class="full" placeholder="Descrição">
-            <input type="number" id="valor" placeholder="Valor">
-            <input type="date" id="data">
-            <select id="contaSelect"></select>
-            <label>Categoria (Use % para dividir, ex: Casa 60%, Obra 40%)</label>
-<input type="text" id="categoriaSelect" list="listaSugestoesCats" placeholder="Selecione ou digite o rateio...">
-<datalist id="listaSugestoesCats">
-    </datalist>
-<small style="color: #666; display: block; margin-top: 5px; font-size: 11px;">
-    💡 Para dividir: Nome 50%, Outra 50% (separado por vírgula)
-</small>
-            <select id="status"><option value="pendente">Pendente</option><option value="pago">Pago</option></select>
-            <select id="tipoRecorrencia" class="full" onchange="toggleParcelas(this.value)">
-                <option value="unico">Único</option>
-                <option value="recorrente">Fixo Mensal</option>
-                <option value="parcelado">Parcelado</option>
-            </select>
-            <input type="number" id="qtdP" class="full" placeholder="Nº Parcelas" style="display:none">
-            <select id="tipo" class="full"><option value="saida">Despesa</option><option value="entrada">Receita</option></select>
-            <button id="btnSalvarPrincipal" onclick="prepararSalvar()" class="full" style="background:var(--primary);color:white">Salvar</button>
-            <button onclick="fecharModal('modalLancamento')" class="full">Cancelar</button>
-        </div>
+    </div>
+
+    <div id="modalConfig" class="modal">
+    <div class="modal-content">
+        <button class="btn-close-modal" onclick="fecharModal('modalConfig')">&times;</button>
+        <h3>Configurações</h3>
+        <div style="display: flex; gap: 5px; margin-bottom: 15px; flex-wrap: wrap;">
+    <button onclick="mudarAbaConfig('bancos')" id="btnTabBancos" style="flex:1; background:#ddd;">C. Custo</button>
+    <button onclick="mudarAbaConfig('contas')" id="idTabContas" style="flex:1; background:#ddd;">Contas</button>
+    <button onclick="mudarAbaConfig('fornecedores')" id="btnTabFornecedores" style="flex:1; background:#ddd;">Fornecedores</button>
+    <button onclick="abrirConfigRateio()" style="flex:1; background:#eee;">Rateios</button>
+</div>
+        <<div class="rateio-box" id="areaInputConfig" style="display: flex; gap: 5px; flex-wrap: nowrap; align-items: center;">
+    <input type="text" id="novoItemNome" placeholder="Nome..." style="flex: 2;">
+    <input type="text" id="novoItemId" placeholder="ID" style="flex: 0.5; display: none;"> 
+    <button onclick="salvarNovoItem()" style="width: 40px; height: 38px; background:var(--primary); color:white; border:none; border-radius:5px; flex-shrink: 0;">+</button>
+</div>
+        <div id="listaConfigItens" style="margin-top:15px; max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius:10px;"></div>
+        <button onclick="fecharModal('modalConfig')" style="width:100%; margin-top:20px; padding:15px; background:var(--dark); color:white; border:none; border-radius:10px;">FECHAR</button>
     </div>
 </div>
 
-<div id="modalAjuste" class="modal"><div class="modal-content"><h3>Ajustar Saldo Real</h3><div class="form-grid"><select id="ajusteContaSelect" class="full"></select><input type="number" id="novoSaldoInformado" class="full" placeholder="Valor em mãos agora"><button onclick="confirmarAjuste()" class="full" style="background:var(--primary);color:white">Confirmar Ajuste</button><button onclick="fecharModal('modalAjuste')" class="full">Sair</button></div></div></div>
-<div id="modalContas" class="modal"><div class="modal-content"><h3>Gerir Contas</h3><div id="listaContasEdit" style="margin-bottom:15px"></div><div class="form-grid"><input type="text" id="nomeNovaConta" class="full" placeholder="Ex: Banco X..."><button onclick="adicionarConta()" class="full" style="background:var(--primary);color:white">Adicionar</button><button onclick="fecharModal('modalContas')" class="full">Sair</button></div></div></div>
-<div id="modalCategorias" class="modal"><div class="modal-content"><h3>Categorias</h3><div id="listaCategoriasEdit" style="margin-bottom:15px"></div><div class="form-grid"><input type="text" id="nomeNovaCategoria" class="full" placeholder="Ex: Supermercado..."><button onclick="adicionarCategoria()" class="full" style="background:var(--primary);color:white">Adicionar</button><button onclick="fecharModal('modalCategorias')" class="full">Sair</button></div></div></div>
-<div id="modalTransferencia" class="modal"><div class="modal-content"><h3>Transferir</h3><div class="form-grid"><label class="full">Origem:</label><select id="transfOrigem" class="full"></select><label class="full">Destino:</label><select id="transfDestino" class="full"></select><input type="number" id="transfValor" class="full" placeholder="Valor R$"><input type="date" id="transfData" class="full"><button onclick="confirmarTransferencia()" style="background:var(--warning)" class="full">Efetuar Transferência</button><button onclick="fecharModal('modalTransferencia')" class="full">Cancelar</button></div></div></div>
-<div id="modalAcoes" class="modal"><div class="modal-content"><h3 id="viewDesc"></h3><div id="viewCorpo" style="background:#f9f9f9;padding:15px;border-radius:15px;margin-bottom:15px"></div><div class="form-grid" id="acoesPrincipais"><button onclick="prepararEdicao()" class="full" style="background:var(--info);color:white">Editar</button><button onclick="darBaixaAtivo()" id="btnBaixa" class="full" style="background:var(--primary);color:white">Confirmar Pagamento</button><button onclick="mostrarMenuExcluir()" class="full" style="background:var(--danger);color:white">Excluir</button><button onclick="fecharModal('modalAcoes')" class="full">Voltar</button></div><div id="menuExcluir" style="display:none;flex-direction:column;gap:8px;margin-top:15px;"><button onclick="confirmarExclusao('unico')">Só este</button><button onclick="confirmarExclusao('futuros')" id="btnExcluirFuturos">Este e próximos</button><button onclick="confirmarExclusao('geral')" id="btnExcluirGeral">Todo o grupo</button><button onclick="cancelarExclusao()" class="full">Voltar</button></div></div></div>
+   <script>
+    // 1. INICIALIZAÇÃO E PERSISTÊNCIA
+    let indexEdicaoConfig = null; // null significa que estamos criando um novo
+    let fornecedoresCadastrados = JSON.parse(localStorage.getItem('mbtx_v82_fornecedores')) || [];
+    let db = JSON.parse(localStorage.getItem('mbtx_v82_db')) || [];
+    let contasBancos = JSON.parse(localStorage.getItem('mbtx_v82_bancos')) || ["Caixa", "Banco"];
+    let contasContabeis = JSON.parse(localStorage.getItem('mbtx_v82_cc')) || ["Suprimentos", "Logística", "Pessoal", "Infra"];
+    let abaAtivaConfig = 'bancos';
+    let modelosRateio = JSON.parse(localStorage.getItem('mbtx_modelos_rateio')) || {};
+    let anexoBase64 = "";
 
-<script>
-    let lancamentos = JSON.parse(localStorage.getItem('mobitex_db')) || [];
-    let dataNavegacaoModal = ""; 
-    let contas = JSON.parse(localStorage.getItem('mobitex_contas')) || ["Banco", "Carteira"];
-    let categorias = JSON.parse(localStorage.getItem('mobitex_cats')) || ["Alimentação", "Lazer", "Saúde", "Fixos"];
-    let itemSelecionado = null;
-    let tipoDashAtual = 'saida';
-    let modoFiltroLista = 'todos'; 
-    let tipoFiltroLista = '';
-    let categoriaFiltroLista = '';
+   window.onload = () => {
+    // Configura os meses iniciais
+    const mesAtual = new Date().toISOString().substring(0, 7);
+    const fMes = document.getElementById('filtroMes');
+    const fMesP = document.getElementById('filtroMesPedidos');
+    
+    if(fMes) fMes.value = mesAtual;
+    if(fMesP) fMesP.value = mesAtual;
 
-    window.onload = () => { resetarFiltroMes(); };
+    // CARREGA AS CONTAS E MODELOS (Essencial estar aqui)
+    popularSelects(); 
+    popularSelectModelos(); 
+    popularDatalistFornecedores()
 
-    function resetarFiltroMes() {
-        if(!document.getElementById('filtroMes').value) {
-            const hoje = new Date();
-            document.getElementById('filtroMes').value = hoje.toISOString().substring(0, 7);
-        }
-        atualizarSaldos();
+    // Inicializa a tela
+    atualizarSaldos();
+};
+function vincularIdFornecedor(nomeDigitado) {
+    // Procura se o nome digitado existe na lista de fornecedores cadastrados
+    const fornecedorEncontrado = fornecedoresCadastrados.find(f => f.nome === nomeDigitado);
+    
+    if (fornecedorEncontrado) {
+        // Se encontrou, preenche o campo ID automaticamente
+        document.getElementById('idFornecedor').value = fornecedorEncontrado.idFornecedor;
     }
+}
 
-    function abrirModal(id) { document.getElementById(id).style.display = 'flex'; }
-    function fecharModal(id) { document.getElementById(id).style.display = 'none'; atualizarSaldos(); }
-
-    function navegarPeriodo(direcao, contexto) {
-        if (!dataNavegacaoModal) {
-            dataNavegacaoModal = document.getElementById('filtroMes').value;
-        }
-        let [ano, mes] = dataNavegacaoModal.split('-').map(Number);
-        const novaData = new Date(ano, (mes - 1) + direcao, 1);
-        dataNavegacaoModal = novaData.toISOString().substring(0, 7);
-
-        if(contexto === 'dash') renderizarGraficoDash();
-        if(contexto === 'lista') {
-            if(modoFiltroLista === 'categoria') abrirFiltradoPorCategoria(categoriaFiltroLista, true);
-            else abrirFiltrado(modoFiltroLista, tipoFiltroLista, true);
-        }
+function popularDatalistFornecedores() {
+    const datalist = document.getElementById('listaSugestoesFornecedores');
+    if(datalist) {
+        // Agora mapeia f.nome pois f é um objeto
+        datalist.innerHTML = fornecedoresCadastrados.map(f => `<option value="${f.nome}">`).join('');
     }
+}
 
-    function atualizarSaldos() {
-        renderizarContas(); 
-        renderizarCategorias();
-        const mesF = document.getElementById('filtroMes').value;
-        const contaF = document.getElementById('filtroConta').value;
+// Função para garantir que os dois campos de data fiquem iguais
+function sincronizarMes(valor) {
+    document.getElementById('filtroMes').value = valor;
+    document.getElementById('filtroMesPedidos').value = valor;
+    atualizarSaldos();
+}
+function mudarAbaPrincipal(abaNome) {
+    // Esconde todas as abas
+    document.querySelectorAll('.secao-aba').forEach(aba => {
+        aba.style.display = 'none';
+    });
+
+    // Mostra a aba clicada
+    document.getElementById(abaNome).style.display = 'block';
+
+    // Atualiza o estilo dos botões
+    const btnResumo = document.getElementById('btnAbaResumo');
+    const btnPedidos = document.getElementById('btnAbaPedidos');
+
+    if (abaNome === 'abaResumo') {
+        btnResumo.style.background = 'var(--dark)';
+        btnResumo.style.color = 'white';
+        btnPedidos.style.background = '#eee';
+        btnPedidos.style.color = 'var(--dark)';
+    } else {
+        btnPedidos.style.background = 'var(--dark)';
+        btnPedidos.style.color = 'white';
+        btnResumo.style.background = '#eee';
+        btnResumo.style.color = 'var(--dark)';
+    }
+}
+function previewArquivo() {
+    const file = document.getElementById('arquivoAnexo').files[0];
+    const reader = new FileReader();
+    const container = document.getElementById('previewContainer');
+    const viewer = document.getElementById('viewer');
+
+    if (!file) return;
+
+    reader.onload = function(e) {
+        anexoBase64 = e.target.result; // Salva o conteúdo para gravar no DB
+        container.style.display = 'block';
         
-        let r = 0, p = 0, peE = 0, peS = 0, tME = 0, tMS = 0;
-        let saldosPorConta = {}; 
-        contas.forEach(c => saldosPorConta[c] = 0);
-        
-        lancamentos.forEach(l => {
-            const v = parseFloat(l.valor) || 0;
-            const mesL = l.data.substring(0,7);
-            const pertenceConta = (contaF === 'Todas' || l.conta === contaF);
-
-            if(l.status === 'pago') {
-                const valorComSinal = l.tipo === 'entrada' ? v : -v;
-                if(saldosPorConta.hasOwnProperty(l.conta)) saldosPorConta[l.conta] += valorComSinal;
-                if(pertenceConta) r += valorComSinal;
-            }
-
-            if(mesL <= mesF && pertenceConta) {
-                p += (l.tipo === 'entrada' ? v : -v);
-            }
-
-            if(mesL === mesF && pertenceConta) {
-                if(l.tipo === 'entrada') {
-                    tME += v;
-                    if(l.status === 'pendente') peE += v;
-                } else if(l.tipo === 'saida') {
-                    tMS += v;
-                    if(l.status === 'pendente') peS += v;
-                }
-            }
-        });
-
-        document.getElementById('saldoReal').innerText = `R$ ${r.toFixed(2)}`;
-        document.getElementById('saldoPrevisto').innerText = `R$ ${p.toFixed(2)}`;
-        document.getElementById('totalPendEntrada').innerText = `R$ ${peE.toFixed(2)}`;
-        document.getElementById('totalPendSaida').innerText = `R$ ${peS.toFixed(2)}`;
-        document.getElementById('totalMesEntrada').innerText = `R$ ${tME.toFixed(2)}`;
-        document.getElementById('totalMesSaida').innerText = `R$ ${tMS.toFixed(2)}`;
-
-        const dashContas = document.getElementById('dashContasLista'); 
-        dashContas.innerHTML = '';
-        for(let c in saldosPorConta) {
-            dashContas.innerHTML += `<div class="acc-item"><small>${c}</small><strong>R$ ${saldosPorConta[c].toFixed(2)}</strong></div>`;
+        if (file.type === "application/pdf") {
+            viewer.innerHTML = `<iframe src="${anexoBase64}" width="100%" height="100%" frameborder="0"></iframe>`;
+        } else {
+            viewer.innerHTML = `<img src="${anexoBase64}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
         }
-    }
+    };
 
-    function renderizarContas() {
-        const s = document.getElementById('contaSelect'), 
-              f = document.getElementById('filtroConta'), 
-              le = document.getElementById('listaContasEdit'), 
-              aj = document.getElementById('ajusteContaSelect'), 
-              tO = document.getElementById('transfOrigem'), 
-              tD = document.getElementById('transfDestino');
-        
-        const valF = f.value; 
-        f.innerHTML = '<option value="Todas">Todas Contas</option>'; 
-        s.innerHTML = ''; le.innerHTML = ''; aj.innerHTML = ''; tO.innerHTML = ''; tD.innerHTML = '';
-        
-        contas.forEach(c => {
-            const opt = `<option value="${c}">${c}</option>`;
-            f.innerHTML += opt; s.innerHTML += opt; aj.innerHTML += opt; tO.innerHTML += opt; tD.innerHTML += opt;
-            
-            le.innerHTML += `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:#f9f9f9; margin-bottom:5px; border-radius:8px;">
-                    <b>${c}</b>
-                    <div>
-                        <button onclick="editarConta('${c}')" style="color:var(--info); border:none; background:none; cursor:pointer; font-weight:bold; margin-right:10px;">EDITAR</button>
-                        <button onclick="removerConta('${c}')" style="color:var(--danger); border:none; background:none; cursor:pointer; font-weight:bold;">EXCLUIR</button>
-                    </div>
-                </div>`;
-        });
-        f.value = valF || 'Todas';
-    }
+    reader.readAsDataURL(file);
+}
 
-    function editarConta(nomeAntigo) {
-        const novoNome = prompt("Digite o novo nome para a conta:", nomeAntigo);
-        if (novoNome && novoNome !== nomeAntigo) {
-            // Atualiza o nome no array de contas
-            const index = contas.indexOf(nomeAntigo);
-            if (index !== -1) contas[index] = novoNome;
-            
-            // Atualiza o nome da conta em todos os lançamentos históricos
-            lancamentos.forEach(l => {
-                if (l.conta === nomeAntigo) l.conta = novoNome;
+function removerAnexo() {
+    anexoBase64 = "";
+    document.getElementById('arquivoAnexo').value = "";
+    document.getElementById('previewContainer').style.display = 'none';
+    document.getElementById('viewer').innerHTML = "";
+}
+function abrirConfigRateio() {
+    renderizarListaModelos();
+    document.getElementById('containerConfigRateio').innerHTML = '';
+    document.getElementById('nomeModeloRateio').value = '';
+    abrirModal('modalConfigRateio');
+}
+
+function adicionarLinhaConfigRateio() {
+    const container = document.getElementById('containerConfigRateio');
+    const div = document.createElement('div');
+    div.className = 'rateio-linha';
+    const opcoes = contasBancos.map(c => `<option value="${c}">${c}</option>`).join('');
+    div.innerHTML = `
+        <select class="conf-r-c" style="width:70%">${opcoes}</select>
+        <input type="number" class="conf-r-p" placeholder="%" style="width:20%">
+        <button onclick="this.parentElement.remove()" style="color:red; border:none; background:none;">&times;</button>
+    `;
+    container.appendChild(div);
+}
+
+function salvarModeloRateio() {
+    const nome = document.getElementById('nomeModeloRateio').value.trim();
+    if(!nome) return alert("Dê um nome ao modelo!");
+    
+    const linhas = document.querySelectorAll('#containerConfigRateio .rateio-linha');
+    let dados = Array.from(linhas).map(l => ({
+        conta: l.querySelector('.conf-r-c').value,
+        p: parseFloat(l.querySelector('.conf-r-p').value) || 0
+    }));
+
+    modelosRateio[nome] = dados;
+    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio));
+    renderizarListaModelos();
+    popularSelectModelos();
+    alert("Modelo salvo!");
+}
+function exportarPlanilhaPorCentroCusto() {
+    const mesSelecionado = document.getElementById('filtroMes').value;
+    if(!mesSelecionado) return alert("Selecione um mês primeiro!");
+
+    const dadosMes = db.filter(l => l.data.substring(0, 7) === mesSelecionado);
+    if (dadosMes.length === 0) return alert("Não existem lançamentos para este mês.");
+
+    let xml = `<?xml version="1.0"?>
+    <?mso-application progid="Excel.Sheet"?>
+    <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+     xmlns:o="urn:schemas-microsoft-com:office:office"
+     xmlns:x="urn:schemas-microsoft-com:office:excel"
+     xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+     xmlns:html="http://www.w3.org/TR/REC-html40">
+     <Styles>
+      <Style ss:ID="headerRed">
+       <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+       <Font ss:Bold="1" ss:Color="#FFFFFF"/>
+       <Interior ss:Color="#FF0000" ss:Pattern="Solid"/>
+       <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders>
+      </Style>
+      <Style ss:ID="titleRed">
+       <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+       <Font ss:Bold="1" ss:Color="#FFFFFF"/>
+       <Interior ss:Color="#FF0000" ss:Pattern="Solid"/>
+      </Style>
+      <Style ss:ID="totalRow">
+       <Font ss:Bold="1"/>
+       <Alignment ss:Horizontal="Right"/>
+       <Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/>
+      </Style>
+      <Style ss:ID="currency">
+       <NumberFormat ss:Format="Standard"/>
+      </Style>
+     </Styles>`;
+
+    contasBancos.forEach(centro => {
+        const itensDoCentro = dadosMes.filter(l => l.rateio && l.rateio.some(r => r.conta === centro));
+
+        if (itensDoCentro.length > 0) {
+            const nomeAba = centro.substring(0, 31).replace(/[\\/?*\[\]]/g, '');
+            xml += `<Worksheet ss:Name="${nomeAba}">
+                <Table ss:ExpandedColumnCount="7">
+                    <Column ss:Width="80"/> <Column ss:Width="150"/> <Column ss:Width="80"/>
+                    <Column ss:Width="60"/> <Column ss:Width="120"/> <Column ss:Width="150"/> <Column ss:Width="80"/>`;
+
+            // Agrupar itens deste centro por Conta Contábil
+            const categoriasNoCentro = [...new Set(itensDoCentro.map(l => l.cc))];
+
+            categoriasNoCentro.forEach(categoria => {
+                const itensDaCategoria = itensDoCentro.filter(l => l.cc === categoria);
+
+                // Cabeçalho da Conta Contábil (Linha Vermelha)
+                xml += `
+                    <Row ss:Height="20">
+                        <Cell ss:MergeAcross="6" ss:StyleID="titleRed">
+                            <Data ss:Type="String">${categoria.toUpperCase()}</Data>
+                        </Cell>
+                    </Row>
+                    <Row ss:StyleID="headerRed">
+                        <Cell><Data ss:Type="String">Data</Data></Cell>
+                        <Cell><Data ss:Type="String">Fornecedor</Data></Cell>
+                        <Cell><Data ss:Type="String">Nº Pedido</Data></Cell>
+                        <Cell><Data ss:Type="String">Parcela</Data></Cell>
+                        <Cell><Data ss:Type="String">Conta Contábil</Data></Cell>
+                        <Cell><Data ss:Type="String">Descrição</Data></Cell>
+                        <Cell><Data ss:Type="String">Valor</Data></Cell>
+                    </Row>`;
+
+                let subtotalCategoria = 0;
+                itensDaCategoria.forEach(l => {
+                    const dataFormatada = l.data.split('-').reverse().join('/');
+                    const infoRateio = l.rateio.find(r => r.conta === centro);
+                    const valorRateado = l.tipo === 'saida' ? -parseFloat(infoRateio.v) : parseFloat(infoRateio.v);
+                    subtotalCategoria += valorRateado;
+
+                    xml += `<Row>
+                        <Cell><Data ss:Type="String">${dataFormatada}</Data></Cell>
+                        <Cell><Data ss:Type="String">${l.fornecedor || ''}</Data></Cell>
+                        <Cell><Data ss:Type="String">${l.doc || ''}</Data></Cell>
+                        <Cell><Data ss:Type="String">${l.parcela || '01/01'}</Data></Cell>
+                        <Cell><Data ss:Type="String">${l.cc}</Data></Cell>
+                        <Cell><Data ss:Type="String">${l.descricao || ''}</Data></Cell>
+                        <Cell ss:StyleID="currency"><Data ss:Type="Number">${valorRateado}</Data></Cell>
+                    </Row>`;
+                });
+
+                // Linha de Total da Categoria
+                xml += `
+                    <Row>
+                        <Cell ss:MergeAcross="5" ss:StyleID="totalRow"><Data ss:Type="String">Total ${categoria}:</Data></Cell>
+                        <Cell ss:StyleID="totalRow"><Data ss:Type="Number">${subtotalCategoria.toFixed(2)}</Data></Cell>
+                    </Row>
+                    <Row></Row>`; // Espaço entre grupos
             });
-            
-            localStorage.setItem('mobitex_contas', JSON.stringify(contas));
-            localStorage.setItem('mobitex_db', JSON.stringify(lancamentos));
-            renderizarContas();
-            atualizarSaldos();
-        }
-    }
 
-    function renderizarCategorias() {
-    const s = document.getElementById('categoriaSelect'), 
-          le = document.getElementById('listaCategoriasEdit');
+            xml += `</Table></Worksheet>`;
+        }
+    });
+
+    xml += `</Workbook>`;
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+    const link = document.createElement("a");
+    link.setAttribute("href", URL.createObjectURL(blob));
+    link.setAttribute("download", `Relatorio_Centro_Contabil_${mesSelecionado}.xls`);
+    link.click();
+}
+function renderizarListaModelos() {
+    const container = document.getElementById('listaModelosSalvos');
+    container.innerHTML = Object.keys(modelosRateio).map(nome => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #eee; background:#fff; margin-bottom:5px; border-radius:8px;">
+            <span><b>${nome}</b></span>
+            <div>
+                <button onclick="carregarModeloParaEdicao('${nome}')" style="color:var(--info); border:none; background:none; font-weight:bold; cursor:pointer; margin-right:10px;">Editar</button>
+                <button onclick="excluirModelo('${nome}')" style="color:var(--danger); border:none; background:none; cursor:pointer;">Excluir</button>
+            </div>
+        </div>
+    `).join('');
+}
+function carregarModeloParaEdicao(nome) {
+    document.getElementById('nomeModeloRateio').value = nome;
+    const container = document.getElementById('containerConfigRateio');
+    container.innerHTML = '';
     
-    s.innerHTML = ''; 
-    le.innerHTML = '';
-    
-    categorias.forEach(c => {
-        s.innerHTML += `<option value="${c}">${c}</option>`;
-        le.innerHTML += `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:#f9f9f9; margin-bottom:5px; border-radius:8px;">
-                <b>${c}</b>
-                <div>
-                    <button onclick="editarCategoria('${c}')" style="color:var(--info); border:none; background:none; cursor:pointer; font-weight:bold; margin-right:10px;">EDITAR</button>
-                    <button onclick="removerCategoria('${c}')" style="color:var(--danger); border:none; background:none; cursor:pointer; font-weight:bold;">EXCLUIR</button>
-                </div>
-            </div>`;
+    const dados = modelosRateio[nome];
+    dados.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'rateio-linha'; // Usa a mesma classe para manter o padrão
+        
+        // Gera as opções do select marcando a correta
+        const opcoes = contasBancos.map(c => 
+            `<option value="${c}" ${c === item.conta ? 'selected' : ''}>${c}</option>`
+        ).join('');
+        
+        div.innerHTML = `
+            <select class="conf-r-c">${opcoes}</select>
+            <input type="number" class="conf-r-p" value="${item.p}" placeholder="%">
+            <div style="width:100%"></div> <button onclick="this.parentElement.remove()">&times;</button>
+        `;
+        container.appendChild(div);
     });
 }
-function editarCategoria(nomeAntigo) {
-    const novoNome = prompt("Digite o novo nome para a categoria:", nomeAntigo);
+function salvarModeloRateio() {
+    const nome = document.getElementById('nomeModeloRateio').value.trim();
+    if(!nome) return alert("Dê um nome ao modelo!");
     
-    if (novoNome && novoNome !== nomeAntigo) {
-        // 1. Atualiza o array de categorias
-        const index = categorias.indexOf(nomeAntigo);
-        if (index !== -1) {
-            categorias[index] = novoNome;
-        }
+    const linhas = document.querySelectorAll('#containerConfigRateio .rateio-linha');
+    if(linhas.length === 0) return alert("Adicione pelo menos uma conta ao rateio!");
+    
+    let dados = Array.from(linhas).map(l => ({
+        conta: l.querySelector('.conf-r-c').value,
+        p: parseFloat(l.querySelector('.conf-r-p').value) || 0
+    }));
 
-        // 2. Atualiza todos os lançamentos que usavam o nome antigo
-        lancamentos.forEach(l => {
-            if (l.categoria === nomeAntigo) {
-                l.categoria = novoNome;
-            }
-        });
-
-        // 3. Salva no LocalStorage
-        localStorage.setItem('mobitex_cats', JSON.stringify(categorias));
-        localStorage.setItem('mobitex_db', JSON.stringify(lancamentos));
-
-        // 4. Atualiza a interface
-        renderizarCategorias();
-        atualizarSaldos(); // Atualiza gráficos e listas abertas
-        alert("Categoria atualizada com sucesso!");
+    // Verifica se o total fecha em 100% (Opcional, mas recomendado)
+    const totalP = dados.reduce((acc, curr) => acc + curr.p, 0);
+    if(totalP !== 100) {
+        if(!confirm(`O total é ${totalP}%. Deseja salvar assim mesmo?`)) return;
     }
+
+    modelosRateio[nome] = dados;
+    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio));
+    
+    // Reseta o formulário após salvar
+    document.getElementById('nomeModeloRateio').value = '';
+    document.getElementById('containerConfigRateio').innerHTML = '';
+    
+    renderizarListaModelos();
+    popularSelectModelos();
+    alert("Modelo salvo/atualizado com sucesso!");
 }
 
-    function adicionarConta() { 
-        const n = document.getElementById('nomeNovaConta').value; 
-        if(n) { 
-            contas.push(n); 
-            localStorage.setItem('mobitex_contas', JSON.stringify(contas)); 
-            renderizarContas(); 
-            document.getElementById('nomeNovaConta').value = ''; 
-        } 
+function popularSelectModelos() {
+    const sel = document.getElementById('selectModeloPronto');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">Escolha o Tipo do Rateio</option>' + 
+        Object.keys(modelosRateio).map(nome => `<option value="${nome}">${nome}</option>`).join('');
+}
+
+function aplicarModeloNoLancamento() {
+    const nome = document.getElementById('selectModeloPronto').value;
+    if(!nome) return;
+    
+    const container = document.getElementById('containerRateio');
+    container.innerHTML = ''; // Limpa o atual
+    
+    modelosRateio[nome].forEach(item => {
+        addLinhaRateio(item.conta, item.p);
+    });
+}
+
+function excluirModelo(nome) {
+    if(confirm(`Excluir modelo ${nome}?`)) {
+        delete modelosRateio[nome];
+        localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio));
+        renderizarListaModelos();
+        popularSelectModelos();
+    }
+}
+function exportarPlanilhaPorMes() {
+    const mesSelecionado = document.getElementById('filtroMes').value;
+    if(!mesSelecionado) return alert("Selecione um mês primeiro!");
+
+    const dadosMes = db.filter(l => l.data.substring(0, 7) === mesSelecionado);
+
+    if (dadosMes.length === 0) {
+        return alert("Não existem lançamentos para o mês selecionado.");
     }
 
-    function removerConta(n) { 
-        if(confirm(`Deseja excluir a conta "${n}"? Os lançamentos vinculados a ela permanecerão, mas a conta sairá da lista.`)) {
-            contas = contas.filter(c => c !== n); 
-            localStorage.setItem('mobitex_contas', JSON.stringify(contas)); 
-            renderizarContas(); 
+    // 1. ADICIONADO "Nº Pedido" AO CABEÇALHO
+    let csvContent = "Fornecedor;Nº Pedido;Cod Servico;Valor Total;Cod Imposto;Descricao\n";
+
+    dadosMes.forEach(l => {
+        // 2. ADICIONADO l.doc ÀS LINHAS
+        const linha = [
+            `"${l.fornecedor || '---'}"`,
+            `"${l.doc || '---'}"`,               // Puxa o número do pedido/documento
+            `"${l.codServico || '0000'}"`,
+            parseFloat(l.valor || 0).toFixed(2),
+            `"${l.tipoImposto || 'I6'}"`,
+            `"${l.descricao || 'Sem descrição'}"`
+        ].join(";");
+        csvContent += linha + "\n";
+    });
+
+    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `relatorio_mobitex_${mesSelecionado}.csv`);
+    link.click();
+}
+function toggleParcelas() {
+    const tipo = document.getElementById('recorrencia').value;
+    document.getElementById('divParcelas').style.display = (tipo === 'parcelado') ? 'block' : 'none';
+}
+   function popularSelects() {
+        const selCC = document.getElementById('selCC');
+        if(selCC) selCC.innerHTML = contasContabeis.map(cc => `<option value="${cc}">${cc}</option>`).join('');
+    }
+
+    // 2. LÓGICA DOS DASHBOARDS (O CORAÇÃO DO SISTEMA)
+    function atualizarSaldos() {
+    const mesF = document.getElementById('filtroMes').value;
+    const busca = document.getElementById('buscaGeral').value.toLowerCase();
+    
+    // Inicializa os saldos com zero
+    let sBancos = {}; contasBancos.forEach(c => sBancos[c] = 0);
+    let sCC = {}; contasContabeis.forEach(c => sCC[c] = 0);
+
+    db.forEach(l => {
+        const mesL = l.data.substring(0, 7);
+        
+        // FILTRO: Só processa se o lançamento for do mês selecionado
+        if (mesL === mesF) {
+            // A) SOMA BANCOS (Apenas do mês)
+            if (l.rateio) {
+                l.rateio.forEach(r => {
+                    if (contasBancos.includes(r.conta)) {
+                        const val = l.tipo === 'entrada' ? parseFloat(r.v) : -parseFloat(r.v);
+                        sBancos[r.conta] += val;
+                    }
+                });
+            }
+
+            // B) SOMA CONTABILIDADE (Apenas do mês)
+            const valCC = l.tipo === 'entrada' ? parseFloat(l.valor) : -parseFloat(l.valor);
+            if (contasContabeis.includes(l.cc)) {
+                sCC[l.cc] = (sCC[l.cc] || 0) + valCC;
+            }
         }
+    });
+
+    // Renderiza Cards de Bancos (Agora filtrados por mês)
+    document.getElementById('dashBancos').innerHTML = contasBancos.map(c => `
+        <div class="dash-card" onclick="verDetalhes('banco', '${c}')">
+            <small>${c}</small>
+            <strong>R$ ${sBancos[c].toFixed(2)}</strong>
+        </div>`).join('');
+
+    // Renderiza Cards de Contabilidade
+    document.getElementById('dashCC').innerHTML = contasContabeis.map(c => `
+        <div class="dash-card cc" onclick="verDetalhes('cc', '${c}')">
+            <small>${c}</small>
+            <strong>R$ ${(sCC[c] || 0).toFixed(2)}</strong>
+        </div>`).join('');
+
+    // Lista Principal (Filtrada por Mês e Busca)
+    const filtrados = db.filter(l => l.data.substring(0, 7) === mesF && (l.fornecedor.toLowerCase().includes(busca) || l.doc.toLowerCase().includes(busca)));
+    renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
+}
+    function renderizarLista(itens) {
+    const area = document.getElementById('areaListaPrincipal');
+    if(itens.length === 0) {
+        area.innerHTML = '<p style="text-align:center; color:#95a5a5; padding:20px;">Sem lançamentos.</p>';
+        return;
     }
 
-    function adicionarCategoria() { 
-        const n = document.getElementById('nomeNovaCategoria').value; 
-        if(n) { 
-            categorias.push(n); 
-            localStorage.setItem('mobitex_cats', JSON.stringify(categorias)); 
-            renderizarCategorias(); 
-            document.getElementById('nomeNovaCategoria').value = ''; 
-        } 
-    }
+    const grupos = itens.reduce((acc, item) => {
+        const status = item.status || 'pendente';
+        if (!acc[status]) acc[status] = [];
+        acc[status].push(item);
+        return acc;
+    }, {});
 
-    function removerCategoria(n) { 
-        categorias = categorias.filter(c => c !== n); 
-        localStorage.setItem('mobitex_cats', JSON.stringify(categorias)); 
-        renderizarCategorias(); 
-    }
+    const ordemStatus = ['pendente', 'em autorização', 'enviado', 'migo', 'miro', 'pago'];
+    let htmlFinal = '';
 
-    function renderizarGraficoDash() {
-        const mesF = dataNavegacaoModal || document.getElementById('filtroMes').value;
-        document.getElementById('labelMesDash').innerText = mesF.split('-').reverse().join('/');
-        
-        const dados = lancamentos.filter(l => l.data.substring(0,7) === mesF && l.tipo === tipoDashAtual && !l.desc.includes("Transf."));
-        const total = dados.reduce((acc, curr) => acc + (parseFloat(curr.valor) || 0), 0);
-        const legendaDiv = document.getElementById('legendaCategorias');
-        const donutLabel = document.getElementById('donutPercent');
-        
-        legendaDiv.innerHTML = '';
-        document.getElementById('totalGastoDash').innerText = `Total: R$ ${total.toFixed(2)}`;
-        document.getElementById('totalGastoDash').style.color = tipoDashAtual === 'saida' ? 'var(--danger)' : 'var(--primary)';
+    ordemStatus.forEach(status => {
+        if (grupos[status] && grupos[status].length > 0) {
+            htmlFinal += `<div style="background:var(--dark); color:white; padding:5px 15px; border-radius:8px; margin: 20px 0 10px 0; font-size:0.7rem; text-transform:uppercase;">${status}</div>`;
 
-        if(total === 0) {
-            document.getElementById('graficoDonut').style.background = '#eee';
-            donutLabel.innerText = "Sem dados";
-        } else {
-            let resumo = {}; 
-            dados.forEach(d => resumo[d.categoria] = (resumo[d.categoria] || 0) + d.valor);
-            
-            let lastPerc = 0, grad = 'conic-gradient(';
-            const cores = tipoDashAtual === 'saida' ? ["#e74c3c", "#e67e22", "#f1c40f", "#34495e", "#9b59b6"] : ["#2ecc71", "#1abc9c", "#3498db", "#27ae60", "#2980b9"];
-            
-            donutLabel.innerHTML = `<small>CATEGORIAS</small><br>${Object.keys(resumo).length}`;
-            
-            Object.keys(resumo).forEach((cat, i) => {
-                let p = (resumo[cat] / total) * 100, cor = cores[i % cores.length];
-                grad += `${cor} ${lastPerc}% ${lastPerc + p}%,`;
-                legendaDiv.innerHTML += `<div class="legend-item" style="border-left-color:${cor}" onclick="abrirFiltradoPorCategoria('${cat}')"><span><span class="legend-color" style="background:${cor}"></span><strong>${cat}</strong></span><span>R$ ${resumo[cat].toFixed(2)} (${p.toFixed(1)}%)</span></div>`;
-                lastPerc += p;
-            });
-            document.getElementById('graficoDonut').style.background = grad.slice(0, -1) + ')';
-        }
-    }
+            htmlFinal += grupos[status].map(l => {
+                const infoParcela = l.parcela ? `<span style="background:#eee; padding:2px 5px; border-radius:4px; font-size:0.7rem; margin-left:5px;">${l.parcela}</span>` : '';
+                
+                // Lógica de identificação do Centro de Custo ou Rateio
+                let infoCentroCusto = "---";
+                if (l.rateio && l.rateio.length > 0) {
+                    infoCentroCusto = l.rateio.length === 1 ? l.rateio[0].conta : "⚠️ RATEADO";
+                }
 
-    function abrirAnaliseGrafica() { renderizarGraficoDash(); abrirModal('modalDash'); }
-    function mudarTipoDash(t) { tipoDashAtual = t; document.getElementById('btnDashSaida').classList.toggle('active', t === 'saida'); document.getElementById('btnDashEntrada').classList.toggle('active', t === 'entrada'); renderizarGraficoDash(); }
+                const valorDisplay = l.parcela 
+                    ? `<small style="display:block; font-size:0.6rem; color:#999;">Total: R$ ${parseFloat(l.valorTotalPedido).toFixed(2)}</small>
+                       <b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'};">Parc: R$ ${parseFloat(l.valor).toFixed(2)}</b>`
+                    : `<b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'};">R$ ${parseFloat(l.valor).toFixed(2)}</b>`;
 
-    function abrirFiltradoPorCategoria(cat, veioDaNavegacao = false) {
-        modoFiltroLista = 'categoria';
-        categoriaFiltroLista = cat;
-        if (!veioDaNavegacao) dataNavegacaoModal = "";
-
-        const mesF = dataNavegacaoModal || document.getElementById('filtroMes').value;
-        const listaDiv = document.getElementById('listaItems');
-        const [ano, mes] = mesF.split('-'); 
-        document.getElementById('labelMesModal').innerText = `${mes}/${ano}`;
-        
-        listaDiv.innerHTML = '';
-        let filtrados = lancamentos.filter(l => l.data.substring(0,7) === mesF && l.categoria === cat && l.tipo === tipoDashAtual && !l.desc.includes("Transf."));
-
-        const totalCat = filtrados.reduce((acc, item) => acc + (parseFloat(item.valor) || 0), 0);
-        document.getElementById('tituloModal').innerText = `${cat}: R$ ${totalCat.toFixed(2)}`;
-
-        renderLista(filtrados, listaDiv);
-        abrirModal('modalListagem');
-    }
-
-    function abrirFiltrado(modo, tipoF = '', veioDaNavegacao = false) {
-        modoFiltroLista = modo; 
-        tipoFiltroLista = tipoF;
-        if (!veioDaNavegacao) dataNavegacaoModal = ""; 
-
-        const mesF = dataNavegacaoModal || document.getElementById('filtroMes').value;
-        const listaDiv = document.getElementById('listaItems');
-        const [ano, mes] = mesF.split('-'); 
-        document.getElementById('labelMesModal').innerText = `${mes}/${ano}`;
-        
-        listaDiv.innerHTML = '';
-        let filtrados = lancamentos.filter(l => l.data.substring(0,7) === mesF);
-
-        if (modo === 'pendentes') filtrados = filtrados.filter(l => l.status === 'pendente' && l.tipo === tipoF);
-        else if (modo === 'mes_total') filtrados = filtrados.filter(l => l.tipo === tipoF);
-
-        if (modo !== 'todos') filtrados = filtrados.filter(l => !l.desc.includes("Transf."));
-
-        const totalSoma = filtrados.reduce((acc, item) => acc + (parseFloat(item.valor) || 0), 0);
-        let tituloBase = modo === 'todos' ? "Extrato" : (tipoF === 'entrada' ? "Total Receitas" : "Total Despesas");
-        if(modo === 'pendentes') tituloBase = tipoF === 'entrada' ? "Receitas Pend." : "Despesas Pend.";
-        document.getElementById('tituloModal').innerText = `${tituloBase}: R$ ${totalSoma.toFixed(2)}`;
-
-        renderLista(filtrados, listaDiv);
-        abrirModal('modalListagem');
-    }
-
-    function renderLista(dados, container) {
-        if (dados.length === 0) {
-            container.innerHTML = '<p style="text-align:center; padding:20px; color:#999;">Nenhum registro.</p>';
-        } else {
-            dados.sort((x, y) => new Date(x.data) - new Date(y.data)).forEach(l => {
-                container.innerHTML += `
-                    <div class="item-row" onclick="verDetalhes(${l.id})">
-                        <div>
-                            <b>${l.desc}</b><br>
-                            <small>${l.data.split('-').reverse().join('/')} • ${l.conta} • ${l.categoria}</small>
+                return `
+                    <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; padding: 10px 15px;">
+                        <div class="list-info" style="flex-grow: 1;">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                                <b style="color:var(--info); font-size: 0.85rem;">${l.doc} ${infoParcela}</b>
+                                <span style="font-size: 0.7rem; color: #95a5a5;">${l.data.split('-').reverse().join('/')}</span>
+                            </div>
+                            
+                            <span style="color:var(--dark); font-weight: 500; font-size: 0.8rem; display:block; margin-bottom: 5px;">${l.idFornecedor ? '[' + l.idFornecedor + '] ' : ''}${l.fornecedor}</span>
+                            
+                            <div style="display: flex; gap: 10px; font-size: 0.65rem; color: #666; border-top: 1px solid #f5f5f5; pt: 5px;">
+                                <div style="flex: 1;"><b>CC:</b> ${l.cc}</div>
+                                <div style="flex: 1;"><b>SERV:</b> ${l.codServico || '---'}</div>
+                                <div style="flex: 1; color: var(--purple); font-weight: bold;"><b>Centro/Rateio:</b> ${infoCentroCusto}</div>
+                            </div>
                         </div>
-                        <b style="color:${l.tipo === 'entrada' ? 'var(--primary)' : 'var(--danger)'}">R$ ${parseFloat(l.valor).toFixed(2)}</b>
-                    </div>`;
-            });
+                        <div style="text-align: right; margin-left: 10px; min-width: 80px;">
+                            ${valorDisplay}
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
-    }
+    });
 
-    function verDetalhes(id) { 
-    itemSelecionado = lancamentos.find(l => l.id == id); 
-    
-    // --- ADICIONE ESTAS DUAS LINHAS PARA RESETAR O MENU ---
-    document.getElementById('acoesPrincipais').style.display = 'grid'; 
-    document.getElementById('menuExcluir').style.display = 'none';
-    // ------------------------------------------------------
-
-    document.getElementById('viewDesc').innerText = itemSelecionado.desc; 
-    document.getElementById('viewCorpo').innerHTML = `
-        <p><b>Valor:</b> R$ ${parseFloat(itemSelecionado.valor).toFixed(2)}<br>
-        <b>Data:</b> ${itemSelecionado.data.split('-').reverse().join('/')}<br>
-        <b>Conta:</b> ${itemSelecionado.conta}<br>
-        <b>Categoria:</b> ${itemSelecionado.categoria}<br>
-        <b>Status:</b> ${itemSelecionado.status.toUpperCase()}</p>`; 
-
-    // Ajusta a visibilidade dos botões de recorrência
-    document.getElementById('btnExcluirFuturos').style.display = itemSelecionado.grupoId ? 'block' : 'none';
-    document.getElementById('btnExcluirGeral').style.display = itemSelecionado.grupoId ? 'block' : 'none';
-    document.getElementById('btnBaixa').style.display = itemSelecionado.status === 'pago' ? 'none' : 'block';
-    
-    abrirModal('modalAcoes'); 
+    area.innerHTML = htmlFinal;
 }
+    // 3. FUNÇÃO PARA VER DETALHES AO CLICAR NO CARD
+    function verDetalhes(tipo, valorFiltro) {
+    const mesF = document.getElementById('filtroMes').value;
+    let filtrados = [];
 
-    function darBaixaAtivo() { itemSelecionado.status = 'pago'; localStorage.setItem('mobitex_db', JSON.stringify(lancamentos)); atualizarSaldos(); fecharModal('modalAcoes'); }
-    
-    function confirmarExclusao(m) { 
-    if(m === 'unico') {
-        lancamentos = lancamentos.filter(l => l.id !== itemSelecionado.id); 
-    } else if(m === 'futuros') {
-        lancamentos = lancamentos.filter(l => l.grupoId !== itemSelecionado.grupoId || l.data < itemSelecionado.data); 
+    if(tipo === 'banco') {
+        document.getElementById('tituloLista').innerText = "Extrato Mensal: " + valorFiltro;
+        // Adicionado filtro de mês aqui também
+        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.rateio && l.rateio.some(r => r.conta === valorFiltro));
     } else {
-        lancamentos = lancamentos.filter(l => l.grupoId !== itemSelecionado.grupoId); 
+        document.getElementById('tituloLista').innerText = "Categoria Mensal: " + valorFiltro;
+        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.cc === valorFiltro);
     }
 
-    localStorage.setItem('mobitex_db', JSON.stringify(lancamentos)); 
+    const corpo = document.getElementById('corpoLista');
+    corpo.innerHTML = filtrados.map(l => {
+        const v = (tipo === 'banco') ? l.rateio.find(r => r.conta === valorFiltro).v : l.valor;
+        return `
+            <div class="list-item" onclick="fecharModal('modalListagem'); editarLançamento('${l.id}')">
+                <div><b>${l.fornecedor}</b><br><small>${l.data.split('-').reverse().join('/')}</small></div>
+                <div style="color:${l.tipo==='entrada'?'green':'red'}">R$ ${parseFloat(v).toFixed(2)}</div>
+            </div>`;
+    }).join('');
     
-    // 1. Atualiza os números da tela principal
-    atualizarSaldos(); 
+    abrirModal('modalListagem');
+}
+function verDetalhes(tipo, valorFiltro) {
+    const mesF = document.getElementById('filtroMes').value;
+    let filtrados = [];
 
-    // 2. ATUALIZA A LISTA NO MODAL QUE ESTÁ ABERTO
-    if(document.getElementById('modalListagem').style.display === 'flex') {
-        if(modoFiltroLista === 'categoria') {
-            abrirFiltradoPorCategoria(categoriaFiltroLista, true);
-        } else {
-            abrirFiltrado(modoFiltroLista, tipoFiltroLista, true);
-        }
+    if(tipo === 'banco') {
+        document.getElementById('tituloLista').innerText = "Extrato Mensal: " + valorFiltro;
+        // Adicionado filtro de mês aqui também
+        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.rateio && l.rateio.some(r => r.conta === valorFiltro));
+    } else {
+        document.getElementById('tituloLista').innerText = "Categoria Mensal: " + valorFiltro;
+        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.cc === valorFiltro);
     }
 
-    // 3. Fecha o menu de ações, mas mantém a listagem aberta
-    fecharModal('modalAcoes'); 
+    const corpo = document.getElementById('corpoLista');
+    corpo.innerHTML = filtrados.map(l => {
+        const v = (tipo === 'banco') ? l.rateio.find(r => r.conta === valorFiltro).v : l.valor;
+        return `
+            <div class="list-item" onclick="fecharModal('modalListagem'); editarLançamento('${l.id}')">
+                <div><b>${l.fornecedor}</b><br><small>${l.data.split('-').reverse().join('/')}</small></div>
+                <div style="color:${l.tipo==='entrada'?'green':'red'}">R$ ${parseFloat(v).toFixed(2)}</div>
+            </div>`;
+    }).join('');
+    
+    abrirModal('modalListagem');
+}
+  function abrirNovoLançamento() {
+    document.getElementById('editId').value = '';
+    document.getElementById('modalTitulo').innerText = 'Novo Lançamento';
+    
+    const camposParaLimpar = [
+        'idFornecedor', // Adicionado aqui
+        'fornecedor', 'numDoc', 'valorTotal', 'descricao',
+        'codServico', 'dataEmissao', 'numNF'
+    ];
+    
+    camposParaLimpar.forEach(id => {
+        if (document.getElementById(id)) document.getElementById(id).value = '';
+    });
+
+    document.getElementById('recorrencia').value = 'unico';
+    document.getElementById('status').value = 'pendente';
+    document.getElementById('tipo').value = 'saida';
+    document.getElementById('divParcelas').style.display = 'none';
+    document.getElementById('qtdParcelas').value = '1';
+    document.getElementById('data').value = new Date().toISOString().split('T')[0];
+    document.getElementById('containerRateio').innerHTML = '';
+    document.getElementById('selectModeloPronto').value = '';
+    document.getElementById('btnExcluir').style.display = 'none';
+
+    removerAnexo(); 
+    abrirModal('modalLanc');
+}
+  function salvarLançamento() {
+    const editId = document.getElementById('editId').value;
+    const valorTotalInput = parseFloat(document.getElementById('valorTotal').value) || 0;
+    const tipoRec = document.getElementById('recorrencia').value;
+    const qtdParcelas = parseInt(document.getElementById('qtdParcelas').value) || 1;
+    const dataOriginal = new Date(document.getElementById('data').value + 'T00:00:00');
+    
+    const dataEmissao = document.getElementById('dataEmissao').value;
+    const numNF = document.getElementById('numNF').value;
+    const tipoImposto = document.getElementById('tipoImposto').value;
+    const codServico = document.getElementById('codServico').value;
+
+    const idFornecedor = document.getElementById('idFornecedor').value; // Adicione esta linha
+    const fornecedor = document.getElementById('fornecedor').value;
+    const numDocOriginal = document.getElementById('numDoc').value;
+    const descricao = document.getElementById('descricao').value;
+    const cc = document.getElementById('selCC').value;
+    const tipo = document.getElementById('tipo').value;
+    const statusOriginal = document.getElementById('status').value;
+
+    const idGrupo = editId ? (db.find(i => i.id === editId)?.idGrupo || Date.now()) : Date.now();
+    let voltas = (tipoRec === 'parcelado') ? qtdParcelas : (tipoRec === 'fixo' ? 12 : 1);
+    
+    if(editId) db = db.filter(i => i.id !== editId);
+
+    // ... (código anterior da função permanece igual)
+
+for (let i = 0; i < (editId ? 1 : voltas); i++) {
+    let dataLanc = new Date(dataOriginal);
+    dataLanc.setMonth(dataOriginal.getMonth() + i);
+    
+    let valorParcela = (tipoRec === 'parcelado') ? valorTotalInput / voltas : valorTotalInput;
+    
+    // REGRA DE REPLICAÇÃO DO ARQUIVO:
+    // Se for 'parcelado', replica em todas (i >= 0).
+    // Se for 'fixo' ou 'unico', só coloca o anexo na primeira (i === 0).
+    let anexoParaSalvar = "";
+    if (tipoRec === 'parcelado') {
+        anexoParaSalvar = anexoBase64;
+    } else {
+        anexoParaSalvar = (i === 0) ? anexoBase64 : "";
+    }
+
+    let docFinal = (tipoRec === 'fixo' && i > 0) 
+        ? "⚠️ PEDIDO FIXO: GERAR NOVO Nº PEDIDO" 
+        : numDocOriginal;
+
+    db.push({
+        id: String(Date.now() + i + Math.random()),
+        idGrupo: idGrupo,
+        idFornecedor: idFornecedor,
+        dataEmissao: dataEmissao, 
+        numNF: numNF,
+        tipoImposto: tipoImposto,
+        codServico: codServico,
+        fornecedor: fornecedor,
+        doc: docFinal,
+        valor: valorParcela,
+        valorTotalPedido: valorTotalInput,
+        anexo: anexoParaSalvar, // Aplica a regra definida acima
+        parcela: tipoRec === 'unico' ? "" : `${(i+1).toString().padStart(2,'0')}/${voltas.toString().padStart(2,'0')}`,
+        data: dataLanc.toISOString().split('T')[0],
+        cc: cc,
+        tipo: tipo,
+        status: (i === 0) ? statusOriginal : 'pendente',
+        descricao: descricao,
+        rateio: Array.from(document.querySelectorAll('#containerRateio .rateio-linha')).map(line => ({
+            conta: line.querySelector('.r-c').value,
+            p: parseFloat(line.querySelector('.r-p').value) || 0,
+            v: (valorParcela * (parseFloat(line.querySelector('.r-p').value) || 0)) / 100
+        }))
+    });
+}
+// ... (restante da função)
+
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    fecharModal('modalLanc');
+    atualizarSaldos();
+}
+   function addLinhaRateio(conta = "", perc = 0) {
+    const container = document.getElementById('containerRateio');
+    const div = document.createElement('div');
+    div.className = 'rateio-linha';
+    const opcoes = contasBancos.map(c => `<option value="${c}" ${c===conta?'selected':''}>${c}</option>`).join('');
+    
+    div.innerHTML = `
+        <select class="r-c" onchange="recalcularRateio()">${opcoes}</select>
+        <input type="number" class="r-p" value="${perc}" oninput="recalcularRateio()" placeholder="%">
+        <input type="number" class="r-v" value="0.00" readonly style="background:#f9f9f9; color:#666;">
+        <button onclick="this.parentElement.remove(); recalcularRateio();">&times;</button>
+    `;
+    container.appendChild(div);
+    recalcularRateio();
 }
 
-    function confirmarTransferencia() { 
-        const de = document.getElementById('transfOrigem').value, para = document.getElementById('transfDestino').value, v = parseFloat(document.getElementById('transfValor').value.replace(',', '.')), da = document.getElementById('transfData').value; 
-        if(de === para || isNaN(v) || !da) return; 
-        const tid = Date.now(); 
-        lancamentos.push({id:tid, desc:`Transf. para ${para}`, valor:v, data:da, conta:de, status:'pago', tipo:'saida', categoria:'Transferência'}, {id:tid+1, desc:`Transf. de ${de}`, valor:v, data:da, conta:para, status:'pago', tipo:'entrada', categoria:'Transferência'}); 
-        localStorage.setItem('mobitex_db', JSON.stringify(lancamentos)); atualizarSaldos(); fecharModal('modalTransferencia'); 
+    function recalcularRateio() {
+    const total = parseFloat(document.getElementById('valorTotal').value) || 0;
+    // Note o seletor específico para o container de rateio do lançamento
+    document.querySelectorAll('#containerRateio .rateio-linha').forEach(l => {
+        const p = parseFloat(l.querySelector('.r-p').value) || 0;
+        const inputValor = l.querySelector('.r-v');
+        if(inputValor) inputValor.value = ((total * p) / 100).toFixed(2);
+    });
+}
+
+    function editarLançamento(id) {
+    const l = db.find(i => i.id === id);
+    if (!l) return;
+
+    // Preenche o ID e muda o título
+    document.getElementById('editId').value = l.id;
+    document.getElementById('modalTitulo').innerText = 'Editar Lançamento';
+
+    // Preenche os campos básicos
+    document.getElementById('numDoc').value = l.doc || '';
+    document.getElementById('idFornecedor').value = l.idFornecedor || '';
+    document.getElementById('fornecedor').value = l.fornecedor || '';
+    document.getElementById('descricao').value = l.descricao || '';
+    document.getElementById('valorTotal').value = l.valorTotalPedido || l.valor;
+    document.getElementById('data').value = l.data;
+    document.getElementById('selCC').value = l.cc;
+    document.getElementById('status').value = l.status || 'pendente';
+    document.getElementById('tipo').value = l.tipo || 'saida';
+
+    // Campos adicionais
+    document.getElementById('dataEmissao').value = l.dataEmissao || '';
+    document.getElementById('numNF').value = l.numNF || '';
+    document.getElementById('tipoImposto').value = l.tipoImposto || 'I6';
+    document.getElementById('codServico').value = l.codServico || '';
+
+    // Lógica de Recorrência (simplificada para edição)
+    document.getElementById('recorrencia').value = 'unico';
+    document.getElementById('divParcelas').style.display = 'none';
+
+    // Carrega o Rateio
+    const container = document.getElementById('containerRateio');
+    container.innerHTML = '';
+    if (l.rateio) {
+        l.rateio.forEach(r => addLinhaRateio(r.conta, r.p));
     }
 
-    function confirmarAjuste() { 
-        const cA = document.getElementById('ajusteContaSelect').value, nv = parseFloat(document.getElementById('novoSaldoInformado').value.replace(',', '.')); 
-        if(isNaN(nv)) return;
-        let sS = 0; lancamentos.forEach(l => { if(l.conta === cA && l.status === 'pago') sS += (l.tipo === 'entrada' ? l.valor : -l.valor); }); 
-        const diff = nv - sS; 
-        if(diff !== 0) { lancamentos.push({id: Date.now(), desc: "Ajuste Saldo", valor: Math.abs(diff), data: new Date().toISOString().split('T')[0], conta: cA, status: 'pago', tipo: diff > 0 ? 'entrada' : 'saida', categoria: 'Ajuste'}); localStorage.setItem('mobitex_db', JSON.stringify(lancamentos)); } 
-        atualizarSaldos(); fecharModal('modalAjuste'); 
+    // EXIBE O BOTÃO DE EXCLUIR (Esta é a parte que faltava)
+    document.getElementById('btnExcluir').style.display = 'block';
+
+    // Lógica do anexo
+    if (l.anexo) {
+        anexoBase64 = l.anexo;
+        document.getElementById('previewContainer').style.display = 'block';
+        const viewer = document.getElementById('viewer');
+        if (anexoBase64.includes("application/pdf")) {
+            viewer.innerHTML = `<iframe src="${anexoBase64}" width="100%" height="100%" frameborder="0"></iframe>`;
+        } else {
+            viewer.innerHTML = `<img src="${anexoBase64}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+        }
+    } else {
+        removerAnexo();
     }
+
+    abrirModal('modalLanc');
+}
+    function excluirLançamento() {
+    const idAtual = document.getElementById('editId').value;
+    const itemAtual = db.find(i => i.id === idAtual);
+    if (!itemAtual) return;
+
+    // NOVA LÓGICA: Verifica se existem outros registros do mesmo fornecedor 
+    // com o mesmo valor total original, indicando um grupo.
+    const grupo = db.filter(i => i.fornecedor === itemAtual.fornecedor && i.valorTotalOriginal === itemAtual.valorTotalOriginal);
+    const ehParteDeGrupo = grupo.length > 1;
+
+    // Se NÃO for grupo, exclui direto
+    if (!ehParteDeGrupo) {
+        if (confirm("Deseja excluir este lançamento único?")) {
+            db = db.filter(i => i.id !== idAtual);
+            finalizarExclusao();
+        }
+        return;
+    }
+
+    // Se FOR grupo (mesmo sendo a 1ª parcela), abre as opções
+    const modo = prompt(
+        "Este item faz parte de um grupo de lançamentos (Fixo/Parcelado).\n\n" +
+        "1 - Apagar APENAS este\n" +
+        "2 - Apagar ESTE E OS PRÓXIMOS (futuros)\n" +
+        "3 - Apagar TODO O GRUPO (todos os meses)"
+    );
+
+    if (modo === "1") {
+        db = db.filter(i => i.id !== idAtual);
+    } 
+    else if (modo === "2") {
+        db = db.filter(i => {
+            const mesmaOrigem = i.fornecedor === itemAtual.fornecedor && i.valorTotalOriginal === itemAtual.valorTotalOriginal;
+            const dataMaiorOuIgual = i.data >= itemAtual.data;
+            return !(mesmaOrigem && dataMaiorOuIgual);
+        });
+    } 
+    else if (modo === "3") {
+        if (confirm(`Remover todos os ${grupo.length} lançamentos deste grupo?`)) {
+            db = db.filter(i => !(i.fornecedor === itemAtual.fornecedor && i.valorTotalOriginal === itemAtual.valorTotalOriginal));
+        } else { return; }
+    } else {
+        return;
+    }
+
+    finalizarExclusao();
+}
+
+function finalizarExclusao() {
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    fecharModal('modalLanc');
+    atualizarSaldos();
+    alert("Exclusão realizada com sucesso!");
+}
+// Adicione esta função que estava faltando
+function abrirConfig() { 
+    abaAtivaConfig = 'bancos'; 
+    renderizarListaConfig(); 
+    abrirModal('modalConfig'); 
+}
+
+function mudarAbaConfig(aba) {
+    abaAtivaConfig = aba;
+    indexEdicaoConfig = null; // Cancela qualquer edição em curso ao trocar de aba
+
+    // Resetar campos de input
+    document.getElementById('novoItemNome').value = '';
+    document.getElementById('novoItemNome').placeholder = (aba === 'fornecedores') ? "Nome Fornecedor..." : "Nome...";
     
-    function prepararEdicao() { 
-        fecharModal('modalAcoes'); 
-        document.getElementById('editId').value = itemSelecionado.id; 
-        document.getElementById('desc').value = itemSelecionado.desc.split(' (')[0]; 
-        document.getElementById('valor').value = itemSelecionado.valor; 
-        document.getElementById('data').value = itemSelecionado.data; 
-        document.getElementById('contaSelect').value = itemSelecionado.conta; 
-        document.getElementById('categoriaSelect').value = itemSelecionado.categoria; 
-        document.getElementById('status').value = itemSelecionado.status; 
-        document.getElementById('tipo').value = itemSelecionado.tipo; 
-        abrirModal('modalLancamento'); 
+    const campoId = document.getElementById('novoItemId');
+    if (campoId) {
+        // Só mostra o campo ID se for a aba de fornecedores
+        campoId.style.display = (aba === 'fornecedores') ? "block" : "none";
+        campoId.value = '';
     }
 
-    function prepararSalvar() { if(document.getElementById('editId').value && itemSelecionado?.grupoId) { document.getElementById('menuAlcanceEdicao').style.display = 'block'; } else { executarSalvar('unico'); } }
+    // Resetar botão para o estado de "+"
+    const btnAcao = document.querySelector('#areaInputConfig button');
+    btnAcao.innerText = "+";
+    btnAcao.style.background = "var(--primary)";
 
-   function executarSalvar(alcance) {
-    const id = document.getElementById('editId').value;
-    const desc = document.getElementById('desc').value;
-    const valorRaw = document.getElementById('valor').value.replace(',', '.');
-    const vt = parseFloat(valorRaw) || 0;
-    const dat = document.getElementById('data').value;
-    const tr = document.getElementById('tipoRecorrencia').value;
-    const t = document.getElementById('tipo').value;
-    const c = document.getElementById('contaSelect').value;
-    const catInput = document.getElementById('categoriaSelect').value; // Valor digitado
-    const s = document.getElementById('status').value;
+    // Atualizar visual dos botões das abas
+    const tabs = {
+        'bancos': 'btnTabBancos',
+        'contas': 'idTabContas',
+        'fornecedores': 'btnTabFornecedores'
+    };
 
-    if (!desc || vt <= 0 || !dat) { 
-        alert("Preencha os campos obrigatórios corretamente."); 
-        return; 
+    Object.values(tabs).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.background = '#ddd';
+    });
+    
+    if (tabs[aba]) document.getElementById(tabs[aba]).style.background = '#eee';
+
+    renderizarListaConfig();
+}
+
+
+function prepararEdicaoConfig(index) {
+    indexEdicaoConfig = index;
+    const btnAcao = document.querySelector('#areaInputConfig button');
+    btnAcao.innerText = "OK"; // Muda o botão de + para OK
+    btnAcao.style.background = "orange";
+
+    if (abaAtivaConfig === 'bancos') {
+        document.getElementById('novoItemNome').value = contasBancos[index];
+    } else if (abaAtivaConfig === 'contas') {
+        document.getElementById('novoItemNome').value = contasContabeis[index];
+    } else {
+        const f = fornecedoresCadastrados[index];
+        document.getElementById('novoItemNome').value = f.nome;
+        document.getElementById('novoItemId').value = f.idFornecedor;
     }
+    document.getElementById('novoItemNome').focus();
+}
 
-    // --- LÓGICA DE RATEIO ---
-    let divisoes = [];
-    if (catInput.includes('%')) {
-        // Separa por vírgula: "Casa 30%, Trabalho 70%" -> ["Casa 30%", "Trabalho 70%"]
-        const partes = catInput.split(',');
-        partes.forEach(p => {
-            const match = p.match(/(.+)\s(\d+)%/); // Pega o nome e o número
-            if (match) {
-                divisoes.push({
-                    nome: match[1].trim(),
-                    percent: parseFloat(match[2]) / 100
-                });
+function salvarEdicaoConfig(index) {
+    const novoNome = document.getElementById(`input-edit-${index}`).value.trim();
+    if (!novoNome) return alert("O nome não pode estar vazio!");
+
+    if (abaAtivaConfig === 'bancos') {
+        const nomeAntigo = contasBancos[index];
+        contasBancos[index] = novoNome;
+        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
+        
+        // Atualiza o banco de dados para manter a integridade nos lançamentos antigos (Opcional)
+        db.forEach(l => {
+            if(l.rateio) {
+                l.rateio.forEach(r => { if(r.conta === nomeAntigo) r.conta = novoNome; });
             }
         });
     } else {
-        divisoes.push({ nome: catInput.trim(), percent: 1.0 });
-    }
-    // ------------------------
-
-    if (!id) {
-        const gid = (tr !== 'unico') ? Date.now() : null;
-        let q = tr === 'parcelado' ? (parseInt(document.getElementById('qtdP').value) || 1) : 1;
-        const [y, m, d] = dat.split('-').map(Number);
-
-        for (let i = 0; i < q; i++) {
-            let da = new Date(y, (m - 1) + i, d);
-            if (da.getDate() !== d) da = new Date(y, (m - 1) + i + 1, 0);
-            
-            // Para cada parcela, cria as divisões de categoria
-            divisoes.forEach(div => {
-                lancamentos.push({
-                    id: Date.now() + Math.random(),
-                    grupoId: gid,
-                    desc: (tr === 'parcelado') ? `${desc} (${i+1}/${q})` : desc,
-                    valor: ((tr === 'parcelado') ? vt / q : vt) * div.percent, // Calcula a % do valor
-                    data: da.toISOString().split('T')[0],
-                    conta: c,
-                    categoria: div.nome,
-                    status: i === 0 ? s : 'pendente',
-                    tipo: t
-                });
-            });
-        }
-    } else {
-        // Na edição, se mudar para rateio, ele aplica ao item atual
-        let editados = lancamentos.filter(l => (alcance === 'futuros') ? (l.grupoId === itemSelecionado.grupoId && l.data >= itemSelecionado.data) : (alcance === 'todos' ? l.grupoId === itemSelecionado.grupoId : l.id == id));
+        const nomeAntigo = contasContabeis[index];
+        contasContabeis[index] = novoNome;
+        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
         
-        // Nota: Editar rateio em lançamentos já existentes é complexo. 
-        // Esta lógica simples apenas atualizará o item selecionado.
-        editados.forEach(l => {
-            l.desc = desc;
-            l.valor = vt * divisoes[0].percent; // Se for edição simples, pega a primeira %
-            l.conta = c;
-            l.categoria = divisoes[0].nome;
-            l.tipo = t;
-            l.data = dat;
-            l.status = s;
-        });
+        // Atualiza a conta contábil nos lançamentos
+        db.forEach(l => { if(l.cc === nomeAntigo) l.cc = novoNome; });
     }
 
-    localStorage.setItem('mobitex_db', JSON.stringify(lancamentos));
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    renderizarListaConfig();
+    popularSelects();
     atualizarSaldos();
-    fecharModal('modalLancamento');
 }
-    function abrirParaNovo() { document.getElementById('editId').value = ''; document.getElementById('desc').value = ''; document.getElementById('data').valueAsDate = new Date(); document.getElementById('menuAlcanceEdicao').style.display='none'; abrirModal('modalLancamento'); }
-    function abrirAjuste() { abrirModal('modalAjuste'); }
-    function abrirGerenciarContas() { abrirModal('modalContas'); }
-    function abrirGerenciarCategorias() { abrirModal('modalCategorias'); }
-    function abrirTransferencia() { abrirModal('modalTransferencia'); }
-    function toggleParcelas(v) { document.getElementById('qtdP').style.display = v === 'parcelado' ? 'block' : 'none'; }
-    function mostrarMenuExcluir() { document.getElementById('acoesPrincipais').style.display = 'none'; document.getElementById('menuExcluir').style.display = 'flex'; }
-    function cancelarExclusao() { document.getElementById('acoesPrincipais').style.display = 'grid'; document.getElementById('menuExcluir').style.display = 'none'; }
+function renderizarListaConfig() {
+    let lista = [];
+    if (abaAtivaConfig === 'bancos') lista = contasBancos;
+    else if (abaAtivaConfig === 'contas') lista = contasContabeis;
+    else lista = fornecedoresCadastrados;
+
+    const container = document.getElementById('listaConfigItens');
+    if (!container) return;
+
+    container.innerHTML = lista.map((item, index) => {
+        // Lógica para exibir Nome e ID se for fornecedor
+        const textoExibicao = abaAtivaConfig === 'fornecedores' 
+            ? `[${item.idFornecedor}] ${item.nome}` 
+            : item;
+
+        return `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee; background: white; margin-bottom: 5px; border-radius: 8px;">
+            <span style="font-size:0.9rem; font-weight:bold; color:var(--dark);">${textoExibicao}</span>
+            <div style="display:flex; gap:10px;">
+                <button onclick="prepararEdicaoConfig(${index})" style="color:var(--primary); border:none; background:none; cursor:pointer; font-size:0.8rem;">EDITAR</button>
+                <button onclick="removerItemConfig(${index})" style="color:var(--danger); border:none; background:none; cursor:pointer; font-size:0.8rem;">EXCLUIR</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+ function salvarNovoItem() {
+    const nome = document.getElementById('novoItemNome').value.trim();
+    const idF = document.getElementById('novoItemId').value.trim();
+
+    if (!nome) return;
+
+    if (abaAtivaConfig === 'bancos') {
+        if (indexEdicaoConfig !== null) {
+            contasBancos[indexEdicaoConfig] = nome;
+        } else {
+            contasBancos.push(nome);
+        }
+        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
+    } 
+    else if (abaAtivaConfig === 'contas') {
+        if (indexEdicaoConfig !== null) {
+            contasContabeis[indexEdicaoConfig] = nome;
+        } else {
+            contasContabeis.push(nome);
+        }
+        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
+    } 
+    else if (abaAtivaConfig === 'fornecedores') {
+        const novoF = { nome: nome, idFornecedor: idF };
+        if (indexEdicaoConfig !== null) {
+            fornecedoresCadastrados[indexEdicaoConfig] = novoF;
+        } else {
+            fornecedoresCadastrados.push(novoF);
+        }
+        localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
+        popularDatalistFornecedores();
+    }
+
+    indexEdicaoConfig = null; // Limpa o estado de edição
+    fecharEdicaoConfig(); // Limpa inputs e atualiza a tela
+    popularSelects(); // Atualiza os dropdowns dos lançamentos
+}
+
+function fecharEdicaoConfig() {
+    indexEdicaoConfig = null;
+    document.getElementById('novoItemNome').value = '';
+    if (document.getElementById('novoItemId')) document.getElementById('novoItemId').value = '';
+    
+    const btnAcao = document.querySelector('#areaInputConfig button');
+    btnAcao.innerText = "+";
+    btnAcao.style.background = "var(--primary)";
+    
+    renderizarListaConfig();
+    popularSelects(); // Atualiza os selects de Centro de Custo/Conta nos lançamentos
+}
+
+function removerItemConfig(index) {
+    if(!confirm("Deseja realmente excluir este item?")) return;
+    
+    if(abaAtivaConfig === 'bancos') {
+        contasBancos.splice(index, 1);
+        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
+    } else if(abaAtivaConfig === 'contas') {
+        contasContabeis.splice(index, 1);
+        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
+    } else {
+        fornecedoresCadastrados.splice(index, 1);
+        localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
+        popularDatalistFornecedores();
+    }
+    renderizarListaConfig();
+}
+
+    function abrirModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function fecharModal(id) { document.getElementById(id).style.display = 'none'; }
+function abrirArquivoEmTelaCheia() {
+    // anexoBase64 é a variável que já guarda o arquivo no seu código atual
+    if (!anexoBase64) {
+        alert("Nenhum arquivo anexado para visualizar.");
+        return;
+    }
+
+    const visualizador = document.getElementById('visualizadorFull');
+    
+    if (anexoBase64.includes("application/pdf")) {
+        visualizador.innerHTML = `<iframe src="${anexoBase64}" width="100%" height="100%" style="border:none;"></iframe>`;
+    } else {
+        visualizador.innerHTML = `<img src="${anexoBase64}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+    }
+
+    abrirModal('modalVisualizarArquivo');
+}
 </script>
+<div id="modalListagem" class="modal">
+    <div class="modal-content">
+        <h3 id="tituloLista">Detalhes</h3>
+        <div id="corpoLista" style="max-height: 400px; overflow-y: auto;"></div>
+        <button onclick="fecharModal('modalListagem')" style="width:100%; margin-top:15px; padding:15px; background:#eee; border:none; border-radius:10px;">FECHAR</button>
+    </div>
+<div id="modalExcluirOpcoes" class="modal">
+    <div class="modal-content" style="text-align: center;">
+        <h3 style="margin-top:0; color:var(--danger);">Como deseja excluir?</h3>
+        <p id="msgExcluir" style="font-size: 0.85rem; color: #666; margin-bottom: 20px;"></p>
+        
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button onclick="executarExclusao('individual')" style="background:#eee; border:none; padding:12px; border-radius:10px; font-weight:bold;">
+                🗑️ Apagar APENAS este
+            </button>
+            <button onclick="executarExclusao('futuros')" style="background:var(--warning); color:var(--dark); border:none; padding:12px; border-radius:10px; font-weight:bold;">
+                ⏩ Apagar ESTE E OS PRÓXIMOS
+            </button>
+            <button onclick="executarExclusao('todos')" style="background:var(--danger); color:white; border:none; padding:12px; border-radius:10px; font-weight:bold;">
+                💥 Apagar TODO O GRUPO
+            </button>
+            <button onclick="fecharModal('modalExcluirOpcoes')" style="background:var(--dark); color:white; border:none; padding:12px; border-radius:10px; margin-top:10px;">
+                CANCELAR
+            </button>
+        </div>
+    </div>
+</div>
+</div>
+<div id="modalConfigRateio" class="modal">
+    <div class="modal-content">
+        <button class="btn-close-modal" onclick="fecharModal('modalConfigRateio')">&times;</button>
+        <h3>Configurar Modelos de Rateio</h3>
+        <div class="rateio-box">
+            <label class="label-f">TIPO DE RATEIO (Ex: Água, Energia)</label>
+            <input type="text" id="nomeModeloRateio" placeholder="Nome do rateio..." style="width: 100%; margin-bottom:10px;">
+            <button onclick="adicionarLinhaConfigRateio()" style="background:var(--dark); color:white; border:none; padding:5px; margin-bottom:10px; border-radius:5px; font-size:0.7rem;">+ Adicionar Centro ao Rateio</button>
+            <div id="containerConfigRateio"></div>
+            <button onclick="salvarModeloRateio()" style="width: 100%; background:var(--dark); color:white; border:none; margin-top:10px; font-weight:bold;">SALVAR MODELO</button>
+        </div>
+        <div id="listaModelosSalvos" style="margin-top:15px; max-height: 200px; overflow-y: auto;"></div>
+    </div>
+</div>
+<div id="modalVisualizarArquivo" class="modal" style="z-index: 2000;">
+    <div class="modal-content" style="width: 95%; height: 95vh; max-width: 1200px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 id="tituloVisualizacao">Visualizar Documento</h3>
+            <button onclick="fecharModal('modalVisualizarArquivo')" style="background:var(--danger); color:white; border:none; padding:10px 20px; border-radius:10px; cursor:pointer; font-weight:bold;">FECHAR</button>
+        </div>
+        <div id="visualizadorFull" style="flex-grow: 1; width: 100%; background: #eee; border-radius: 10px; overflow: hidden; display: flex; justify-content: center; align-items: center;">
+            </div>
+    </div>
+</div>
 </body>
+<datalist id="listaSugestoesFornecedores"></datalist>
 </html>
