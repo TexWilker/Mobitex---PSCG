@@ -257,6 +257,7 @@
         <label class="label-f">FORNECEDOR</label>
         
         <input type="text" id="fornecedor" list="listaSugestoesFornecedores" oninput="vincularIdFornecedor(this.value)" style="width: 100%;">
+        <datalist id="listaSugestoesFornecedores"></datalist>
     </div>
   
     <div class="full">
@@ -415,7 +416,29 @@ function vincularIdFornecedor(nomeDigitado) {
         document.getElementById('idFornecedor').value = fornecedorEncontrado.idFornecedor;
     }
 }
+function buscarFornecedor(valor) {
+    // 1. Pega a lista de fornecedores que está salva nas suas configurações
+    const fornecedoresCadastrados = JSON.parse(localStorage.getItem('mbtx_v82_config_fornecedores') || '[]');
+    const datalist = document.getElementById('listaSugestoesFornecedores');
+    const campoId = document.getElementById('idFornecedor');
 
+    // 2. Limpa e alimenta o datalist com sugestões
+    datalist.innerHTML = '';
+    fornecedoresCadastrados.forEach(f => {
+        let option = document.createElement('option');
+        option.value = f.nome;
+        datalist.appendChild(option);
+    });
+
+    // 3. Verifica se o nome digitado existe na lista para puxar o ID
+    const fornecedorEncontrado = fornecedoresCadastrados.find(f => f.nome.toLowerCase() === valor.toLowerCase());
+    
+    if (fornecedorEncontrado) {
+        campoId.value = fornecedorEncontrado.id; // Preenche o ID automaticamente
+    } else {
+        campoId.value = ''; // Limpa o ID se você digitar um nome novo
+    }
+}
 function popularDatalistFornecedores() {
     const datalist = document.getElementById('listaSugestoesFornecedores');
     if(datalist) {
@@ -836,10 +859,25 @@ function toggleParcelas() {
                 const infoParcela = l.parcela ? `<span style="background:#eee; padding:2px 5px; border-radius:4px; font-size:0.7rem; margin-left:5px;">${l.parcela}</span>` : '';
                 
                 // Lógica de identificação do Centro de Custo ou Rateio
-                let infoCentroCusto = "---";
-                if (l.rateio && l.rateio.length > 0) {
-                    infoCentroCusto = l.rateio.length === 1 ? l.rateio[0].conta : "⚠️ RATEADO";
-                }
+               // Lógica de identificação do Centro de Custo ou Rateio
+let infoCentroCusto = "---";
+
+if (l.rateio && l.rateio.length > 0) {
+    // 1. Se tiver apenas 1 item, mostra o nome da conta
+    if (l.rateio.length === 1) {
+        infoCentroCusto = l.rateio[0].conta;
+    } 
+    // 2. Se for rateado, verifica se existe o nome do modelo (tipoRateio)
+    else {
+        infoCentroCusto = l.tipoRateio ? l.tipoRateio : "⚠️ RATEADO";
+    }
+}
+// Procure por esta parte dentro do grupos[status].forEach(l => { ...
+// E SUBSTITUA A DEFINIÇÃO DO txtRateio POR ESTA:
+
+const txtRateio = l.tipoRateio 
+    ? l.tipoRateio 
+    : (l.rateio && l.rateio.length > 0 ? l.rateio[0].conta : "Simples");
 
                 const valorDisplay = l.parcela 
                     ? `<small style="display:block; font-size:0.6rem; color:#999;">Total: R$ ${parseFloat(l.valorTotalPedido).toFixed(2)}</small>
@@ -952,79 +990,87 @@ function verDetalhes(tipo, valorFiltro) {
     abrirModal('modalLanc');
 }
   function salvarLançamento() {
-    const editId = document.getElementById('editId').value;
-    const valorTotalInput = parseFloat(document.getElementById('valorTotal').value) || 0;
+    const valorFinal = parseFloat(document.getElementById('valorTotal').value) || 0;
     const tipoRec = document.getElementById('recorrencia').value;
-    const qtdParcelas = parseInt(document.getElementById('qtdParcelas').value) || 1;
-    const dataOriginal = new Date(document.getElementById('data').value + 'T00:00:00');
-    
-    const dataEmissao = document.getElementById('dataEmissao').value;
-    const numNF = document.getElementById('numNF').value;
-    const tipoImposto = document.getElementById('tipoImposto').value;
-    const codServico = document.getElementById('codServico').value;
-
-    const idFornecedor = document.getElementById('idFornecedor').value; // Adicione esta linha
-    const fornecedor = document.getElementById('fornecedor').value;
+    const qtd = parseInt(document.getElementById('qtdParcelas').value) || 1;
+    const dataBase = document.getElementById('data').value;
     const numDocOriginal = document.getElementById('numDoc').value;
-    const descricao = document.getElementById('descricao').value;
-    const cc = document.getElementById('selCC').value;
-    const tipo = document.getElementById('tipo').value;
-    const statusOriginal = document.getElementById('status').value;
 
-    const idGrupo = editId ? (db.find(i => i.id === editId)?.idGrupo || Date.now()) : Date.now();
-    let voltas = (tipoRec === 'parcelado') ? qtdParcelas : (tipoRec === 'fixo' ? 12 : 1);
-    
-    if(editId) db = db.filter(i => i.id !== editId);
+    // CAPTURA O NOME DO MODELO SELECIONADO (ADICIONADO)
+    const selMod = document.getElementById('selectModeloPronto');
+    const nomeModelo = selMod.options[selMod.selectedIndex].text;
+    const tipoRateioParaSalvar = selMod.value ? nomeModelo : "";
 
-    // ... (código anterior da função permanece igual)
+    const linhas = document.querySelectorAll('#containerRateio .rateio-linha');
+    let dadosRateio = Array.from(linhas).map(l => ({
+        conta: l.querySelector('.r-c').value,
+        p: parseFloat(l.querySelector('.r-p').value) || 0,
+        v: parseFloat(l.querySelector('.r-v').value) || 0
+    }));
 
-for (let i = 0; i < (editId ? 1 : voltas); i++) {
-    let dataLanc = new Date(dataOriginal);
-    dataLanc.setMonth(dataOriginal.getMonth() + i);
-    
-    let valorParcela = (tipoRec === 'parcelado') ? valorTotalInput / voltas : valorTotalInput;
-    
-    // REGRA DE REPLICAÇÃO DO ARQUIVO:
-    // Se for 'parcelado', replica em todas (i >= 0).
-    // Se for 'fixo' ou 'unico', só coloca o anexo na primeira (i === 0).
-    let anexoParaSalvar = "";
-    if (tipoRec === 'parcelado') {
-        anexoParaSalvar = anexoBase64;
+    if (tipoRec === 'unico') {
+        const novo = {
+            id: document.getElementById('editId').value || Date.now(),
+            doc: numDocOriginal,
+            fornecedor: document.getElementById('fornecedor').value,
+            idFornecedor: document.getElementById('idFornecedor').value,
+            descricao: document.getElementById('descricao').value,
+            dataEmissao: document.getElementById('dataEmissao').value,
+            numNF: document.getElementById('numNF').value,
+            tipoImposto: document.getElementById('tipoImposto').value,
+            codServico: document.getElementById('codServico').value,
+            tipo: document.getElementById('tipo').value,
+            valor: valorFinal,
+            data: dataBase,
+            cc: document.getElementById('selCC').value,
+            rateio: dadosRateio,
+            tipoRateio: tipoRateioParaSalvar, // CAMPO ADICIONADO
+            status: document.getElementById('status').value,
+            anexo: anexoBase64
+        };
+
+        const idx = db.findIndex(l => l.id == novo.id);
+        if (idx > -1) db[idx] = novo;
+        else db.push(novo);
+
     } else {
-        anexoParaSalvar = (i === 0) ? anexoBase64 : "";
+        for (let i = 0; i < qtd; i++) {
+            let dataParcela = new Date(dataBase + 'T00:00:00');
+            dataParcela.setMonth(dataParcela.getMonth() + i);
+
+            let vParcela = (tipoRec === 'parcelado') ? (valorFinal / qtd) : valorFinal;
+
+            let docFinal = (tipoRec === 'fixo' && i > 0) 
+                ? "⚠️ PEDIDO FIXO: GERAR NOVO Nº PEDIDO" 
+                : numDocOriginal;
+
+            let rateioParcela = dadosRateio.map(r => ({
+                ...r,
+                v: (vParcela * r.p) / 100
+            }));
+
+            db.push({
+                id: Date.now() + i,
+                doc: docFinal,
+                fornecedor: document.getElementById('fornecedor').value,
+                idFornecedor: document.getElementById('idFornecedor').value,
+                descricao: document.getElementById('descricao').value,
+                dataEmissao: document.getElementById('dataEmissao').value,
+                numNF: document.getElementById('numNF').value,
+                tipoImposto: document.getElementById('tipoImposto').value,
+                codServico: document.getElementById('codServico').value,
+                tipo: document.getElementById('tipo').value,
+                valor: vParcela,
+                data: dataParcela.toISOString().substring(0, 10),
+                cc: document.getElementById('selCC').value,
+                rateio: rateioParcela,
+                tipoRateio: tipoRateioParaSalvar, // CAMPO ADICIONADO
+                parcela: `${(i + 1).toString().padStart(2, '0')}/${qtd.toString().padStart(2, '0')}`,
+                status: document.getElementById('status').value,
+                anexo: anexoBase64
+            });
+        }
     }
-
-    let docFinal = (tipoRec === 'fixo' && i > 0) 
-        ? "⚠️ PEDIDO FIXO: GERAR NOVO Nº PEDIDO" 
-        : numDocOriginal;
-
-    db.push({
-        id: String(Date.now() + i + Math.random()),
-        idGrupo: idGrupo,
-        idFornecedor: idFornecedor,
-        dataEmissao: dataEmissao, 
-        numNF: numNF,
-        tipoImposto: tipoImposto,
-        codServico: codServico,
-        fornecedor: fornecedor,
-        doc: docFinal,
-        valor: valorParcela,
-        valorTotalPedido: valorTotalInput,
-        anexo: anexoParaSalvar, // Aplica a regra definida acima
-        parcela: tipoRec === 'unico' ? "" : `${(i+1).toString().padStart(2,'0')}/${voltas.toString().padStart(2,'0')}`,
-        data: dataLanc.toISOString().split('T')[0],
-        cc: cc,
-        tipo: tipo,
-        status: (i === 0) ? statusOriginal : 'pendente',
-        descricao: descricao,
-        rateio: Array.from(document.querySelectorAll('#containerRateio .rateio-linha')).map(line => ({
-            conta: line.querySelector('.r-c').value,
-            p: parseFloat(line.querySelector('.r-p').value) || 0,
-            v: (valorParcela * (parseFloat(line.querySelector('.r-p').value) || 0)) / 100
-        }))
-    });
-}
-// ... (restante da função)
 
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
     fecharModal('modalLanc');
