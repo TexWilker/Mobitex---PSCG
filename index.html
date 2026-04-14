@@ -1170,14 +1170,19 @@ function verDetalhes(tipo, valorFiltro) {
 
         // 2. Reseta e carrega o anexo
         anexoBase64 = l.anexo || '';
+const btnVer = document.getElementById('btnVerAnexo');
+    const btnExcluirAnexo = document.getElementById('btnRemoverAnexo');
 
-        
-        const btnVer = document.getElementById('btnVerAnexo');
-    if (btnVer) {
-        btnVer.style.display = anexoBase64 ? 'inline-block' : 'none';
+    if (anexoBase64) {
+        if (btnVer) btnVer.style.display = 'inline-block';
+        if (btnExcluirAnexo) btnExcluirAnexo.style.display = 'inline-block';
+    } else {
+        if (btnVer) btnVer.style.display = 'none';
+        if (btnExcluirAnexo) btnExcluirAnexo.style.display = 'none';
     }
 
-
+    
+    
         const btnAnexo = document.querySelector('button[onclick*="anexo"]');
         if (btnAnexo) {
             if (anexoBase64) {
