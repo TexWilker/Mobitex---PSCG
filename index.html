@@ -233,12 +233,15 @@
                 </div>
 <div class="full">
     <label class="label-f">ANEXAR DOCUMENTO (PDF/IMG)</label>
-    <div style="display: flex; gap: 1px;">
-        <input type="file" id="arquivoAnexo" accept="application/pdf, image/*" onchange="previewArquivo()" style="flex-grow: 1;">
-        <button type="button" onclick="abrirArquivoEmTelaCheia()" style="background: var(--info); color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer;">
-            🔍
-        </button>
-    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+    <button type="button" onclick="document.getElementById('anexo').click()" style="background:var(--dark); color:white;">Anexar PDF</button>
+    <input type="file" id="anexo" onchange="tratarArquivo(event)" style="display:none;" accept="application/pdf,image/*">
+    
+    <button id="btnVerAnexo" type="button" onclick="visualizarAnexo()" style="display:none; background:var(--info); color:white; border:none; padding:5px 10px; border-radius:5px;">🔍</button>
+    
+    <button id="btnRemoverAnexo" type="button" onclick="removerAnexo()" style="display:none; background:var(--danger); color:white; border:none; padding:5px 10px; border-radius:5px;">🗑️</button>
+
+</div>
 </div>
 
 <div id="previewContainer" class="full" style="display:none; margin-top:10px; border: 1px solid #ddd; border-radius: 10px; overflow: hidden;">
@@ -500,12 +503,39 @@ function previewArquivo() {
 
     reader.readAsDataURL(file);
 }
+function visualizarAnexo() {
+    if (!anexoBase64) {
+        alert("Nenhum arquivo para visualizar.");
+        return;
+    }
 
+    const container = document.getElementById('visualizadorFull');
+    container.innerHTML = ''; // Limpa o visualizador
+
+    if (anexoBase64.includes("application/pdf")) {
+        // Se for PDF, usa um <embed>
+        container.innerHTML = `<embed src="${anexoBase64}" type="application/pdf" width="100%" height="100%">`;
+    } else {
+        // Se for imagem, usa um <img>
+        container.innerHTML = `<img src="${anexoBase64}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+    }
+
+    document.getElementById('modalVisualizarArquivo').style.display = 'flex';
+}
 function removerAnexo() {
-    anexoBase64 = "";
-    document.getElementById('arquivoAnexo').value = "";
-    document.getElementById('previewContainer').style.display = 'none';
-    document.getElementById('viewer').innerHTML = "";
+    if (confirm("Tem certeza que deseja remover este anexo?")) {
+        anexoBase64 = ""; // Limpa a variável
+        
+        // Limpa o input file para permitir selecionar o mesmo arquivo depois
+        const input = document.getElementById('anexo');
+        if (input) input.value = "";
+
+        // Esconde os botões de ação
+        document.getElementById('btnVerAnexo').style.display = 'none';
+        document.getElementById('btnRemoverAnexo').style.display = 'none';
+        
+        alert("Anexo removido da memória. Clique em SALVAR para confirmar no banco de dados.");
+    }
 }
 function abrirConfigRateio() {
     renderizarListaModelos();
@@ -957,31 +987,50 @@ function verDetalhes(tipo, valorFiltro) {
     abrirModal('modalListagem');
 }
   function abrirNovoLançamento() {
-    document.getElementById('editId').value = '';
-    document.getElementById('modalTitulo').innerText = 'Novo Lançamento';
-    
-    const camposParaLimpar = [
-        'idFornecedor', // Adicionado aqui
-        'fornecedor', 'numDoc', 'valorTotal', 'descricao',
-        'codServico', 'dataEmissao', 'numNF'
-    ];
-    
-    camposParaLimpar.forEach(id => {
-        if (document.getElementById(id)) document.getElementById(id).value = '';
-    });
+    try {
+        // 1. Limpa IDs e Títulos
+        if (document.getElementById('editId')) document.getElementById('editId').value = '';
+        if (document.getElementById('modalTitulo')) document.getElementById('modalTitulo').innerText = 'Novo Lançamento';
+        
+        // 2. Limpa campos de texto
+        const campos = ['idFornecedor', 'fornecedor', 'numDoc', 'valorTotal', 'descricao', 'codServico', 'dataEmissao', 'numNF'];
+        campos.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
 
-    document.getElementById('recorrencia').value = 'unico';
-    document.getElementById('status').value = 'pendente';
-    document.getElementById('tipo').value = 'saida';
-    document.getElementById('divParcelas').style.display = 'none';
-    document.getElementById('qtdParcelas').value = '1';
-    document.getElementById('data').value = new Date().toISOString().split('T')[0];
-    document.getElementById('containerRateio').innerHTML = '';
-    document.getElementById('selectModeloPronto').value = '';
-    document.getElementById('btnExcluir').style.display = 'none';
+        // 3. Reseta seletores e datas
+        if (document.getElementById('recorrencia')) document.getElementById('recorrencia').value = 'unico';
+        if (document.getElementById('status')) document.getElementById('status').value = 'pendente';
+        if (document.getElementById('tipo')) document.getElementById('tipo').value = 'saida';
+        if (document.getElementById('qtdParcelas')) document.getElementById('qtdParcelas').value = '1';
+        if (document.getElementById('data')) {
+            document.getElementById('data').value = new Date().toISOString().split('T')[0];
+        }
 
-    removerAnexo(); 
-    abrirModal('modalLanc');
+        // 4. Limpa Rateio e Parcelas
+        const divP = document.getElementById('divParcelas') || document.getElementById('divQtdParcelas');
+        if (divP) divP.style.display = 'none';
+        if (document.getElementById('containerRateio')) document.getElementById('containerRateio').innerHTML = '';
+
+        // 5. TRATAMENTO DO ANEXO (Correção do erro da imagem)
+        window.anexoBase64 = ""; // Usa window. para garantir que a variável global seja acessada
+        
+        const btnVer = document.getElementById('btnVerAnexo');
+        if (btnVer) btnVer.style.display = 'none';
+
+        if (document.getElementById('btnExcluir')) {
+            document.getElementById('btnExcluir').style.display = 'none';
+        }
+
+        // 6. Abre o modal
+        abrirModal('modalLanc');
+
+    } catch (e) {
+        console.error("Erro ao abrir modal:", e);
+        // Fallback caso a função abrirModal falhe
+        document.getElementById('modalLanc').style.display = 'flex';
+    }
 }
   function salvarLançamento() {
     // Tratamento para evitar NaN: garante que o valor seja numérico ou zero
@@ -1029,6 +1078,14 @@ function verDetalhes(tipo, valorFiltro) {
             v: (valorDaVez * r.p) / 100
         }));
 
+        let anexoParaEsteLancamento = "";
+    if (tipoRec === 'parcelado') {
+        // Se for parcelado, replica para todas as parcelas
+        anexoParaEsteLancamento = anexoBase64; 
+    } else {
+        // Se for Fixo ou Unitário, salva apenas no lançamento atual (o primeiro)
+        anexoParaEsteLancamento = (i === 0) ? anexoBase64 : "";
+    }
         const novoLanc = {
             id: Date.now() + i,
             doc: docFinal,
@@ -1048,12 +1105,16 @@ function verDetalhes(tipo, valorFiltro) {
             tipoRateio: nomeModelo,
             parcela: (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "",
             status: document.getElementById('status').value,
-            anexo: anexoBase64
+            anexo: (tipoRec === 'parcelado' || i === 0) ? anexoBase64 : "",
+            
+            data: dataParcela.toISOString().substring(0, 10),
+            status: document.getElementById('status').value
         };
         db.push(novoLanc);
     }
-
+    
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    anexoBase64 = "";
     fecharModal('modalLanc');
     atualizarSaldos();
 }
@@ -1109,6 +1170,14 @@ function verDetalhes(tipo, valorFiltro) {
 
         // 2. Reseta e carrega o anexo
         anexoBase64 = l.anexo || '';
+
+        
+        const btnVer = document.getElementById('btnVerAnexo');
+    if (btnVer) {
+        btnVer.style.display = anexoBase64 ? 'inline-block' : 'none';
+    }
+
+
         const btnAnexo = document.querySelector('button[onclick*="anexo"]');
         if (btnAnexo) {
             if (anexoBase64) {
@@ -1398,6 +1467,19 @@ function removerItemConfig(index) {
         popularDatalistFornecedores();
     }
     renderizarListaConfig();
+}
+function tratarArquivo(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            anexoBase64 = event.target.result;
+            // Mostra a lupa e a lixeira assim que carregar
+            document.getElementById('btnVerAnexo').style.display = 'inline-block';
+            document.getElementById('btnRemoverAnexo').style.display = 'inline-block';
+        };
+        reader.readAsDataURL(file);
+    }
 }
 
     function abrirModal(id) { document.getElementById(id).style.display = 'flex'; }
