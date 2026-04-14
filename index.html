@@ -860,30 +860,23 @@ function toggleParcelas() {
                 const infoParcela = l.parcela ? `<span style="background:#eee; padding:2px 5px; border-radius:4px; font-size:0.7rem; margin-left:5px;">${l.parcela}</span>` : '';
                 
                 // Lógica de identificação do Centro de Custo ou Rateio
-               // Lógica de identificação do Centro de Custo ou Rateio
-let infoCentroCusto = "---";
+                let infoCentroCusto = "---";
+                if (l.rateio && l.rateio.length > 0) {
+                    if (l.rateio.length === 1) {
+                        infoCentroCusto = l.rateio[0].conta;
+                    } else {
+                        infoCentroCusto = l.tipoRateio ? l.tipoRateio : "⚠️ RATEADO";
+                    }
+                }
 
-if (l.rateio && l.rateio.length > 0) {
-    // 1. Se tiver apenas 1 item, mostra o nome da conta
-    if (l.rateio.length === 1) {
-        infoCentroCusto = l.rateio[0].conta;
-    } 
-    // 2. Se for rateado, verifica se existe o nome do modelo (tipoRateio)
-    else {
-        infoCentroCusto = l.tipoRateio ? l.tipoRateio : "⚠️ RATEADO";
-    }
-}
-// Procure por esta parte dentro do grupos[status].forEach(l => { ...
-// E SUBSTITUA A DEFINIÇÃO DO txtRateio POR ESTA:
-
-const txtRateio = l.tipoRateio 
-    ? l.tipoRateio 
-    : (l.rateio && l.rateio.length > 0 ? l.rateio[0].conta : "Simples");
+                // Tratamento de Valores e Cores (Correção NaN e Destaque Vermelho)
+                const valorTotalNum = parseFloat(l.valorTotalPedido || 0);
+                const valorParcelaNum = parseFloat(l.valor || 0);
 
                 const valorDisplay = l.parcela 
-                    ? `<small style="display:block; font-size:0.6rem; color:#999;">Total: R$ ${parseFloat(l.valorTotalPedido).toFixed(2)}</small>
-                       <b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'};">Parc: R$ ${parseFloat(l.valor).toFixed(2)}</b>`
-                    : `<b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'};">R$ ${parseFloat(l.valor).toFixed(2)}</b>`;
+                    ? `<small style="display:block; font-size:0.6rem; color:#999;">Total: R$ ${valorTotalNum.toFixed(2)}</small>
+                       <b style="color:var(--danger);">Parc: R$ ${valorParcelaNum.toFixed(2)}</b>` // Vermelho se for parcela
+                    : `<b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'};">R$ ${valorParcelaNum.toFixed(2)}</b>`;
 
                 return `
                     <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; padding: 10px 15px;">
@@ -895,7 +888,7 @@ const txtRateio = l.tipoRateio
                             
                             <span style="color:var(--dark); font-weight: 500; font-size: 0.8rem; display:block; margin-bottom: 5px;">${l.idFornecedor ? '[' + l.idFornecedor + '] ' : ''}${l.fornecedor}</span>
                             
-                            <div style="display: flex; gap: 10px; font-size: 0.65rem; color: #666; border-top: 1px solid #f5f5f5; pt: 5px;">
+                            <div style="display: flex; gap: 10px; font-size: 0.65rem; color: #666; border-top: 1px solid #f5f5f5; padding-top: 5px;">
                                 <div style="flex: 1;"><b>CC:</b> ${l.cc}</div>
                                 <div style="flex: 1;"><b>SERV:</b> ${l.codServico || '---'}</div>
                                 <div style="flex: 1; color: var(--purple); font-weight: bold;"><b>Centro/Rateio:</b> ${infoCentroCusto}</div>
@@ -991,28 +984,54 @@ function verDetalhes(tipo, valorFiltro) {
     abrirModal('modalLanc');
 }
   function salvarLançamento() {
-    const valorFinal = parseFloat(document.getElementById('valorTotal').value) || 0;
+    // Tratamento para evitar NaN: garante que o valor seja numérico ou zero
+    const valorTotalDigitado = parseFloat(document.getElementById('valorTotal').value) || 0;
     const tipoRec = document.getElementById('recorrencia').value;
-    const qtd = parseInt(document.getElementById('qtdParcelas').value) || 1;
-    const dataBase = document.getElementById('data').value;
     const numDocOriginal = document.getElementById('numDoc').value;
+    const dataBaseStr = document.getElementById('data').value;
+    
+    let qtdParaGerar = 1;
+    if (tipoRec === 'parcelado') {
+        qtdParaGerar = parseInt(document.getElementById('qtdParcelas').value) || 1;
+    } else if (tipoRec === 'fixo') {
+        qtdParaGerar = 12; // Define 12 meses para recorrência fixa
+    }
 
-    // CAPTURA O NOME DO MODELO SELECIONADO (ADICIONADO)
     const selMod = document.getElementById('selectModeloPronto');
-    const nomeModelo = selMod.options[selMod.selectedIndex].text;
-    const tipoRateioParaSalvar = selMod.value ? nomeModelo : "";
+    const nomeModelo = selMod.value ? selMod.options[selMod.selectedIndex].text : "";
 
-    const linhas = document.querySelectorAll('#containerRateio .rateio-linha');
-    let dadosRateio = Array.from(linhas).map(l => ({
+    const linhasRateio = document.querySelectorAll('#containerRateio .rateio-linha');
+    let dadosRateioBase = Array.from(linhasRateio).map(l => ({
         conta: l.querySelector('.r-c').value,
-        p: parseFloat(l.querySelector('.r-p').value) || 0,
-        v: parseFloat(l.querySelector('.r-v').value) || 0
+        p: parseFloat(l.querySelector('.r-p').value) || 0
     }));
 
-    if (tipoRec === 'unico') {
-        const novo = {
-            id: document.getElementById('editId').value || Date.now(),
-            doc: numDocOriginal,
+    const idEdicao = document.getElementById('editId').value;
+    if (idEdicao) {
+        db = db.filter(l => l.id != idEdicao);
+    }
+
+    for (let i = 0; i < qtdParaGerar; i++) {
+        let dataParcela = new Date(dataBaseStr + 'T00:00:00');
+        dataParcela.setMonth(dataParcela.getMonth() + i);
+
+        // No fixo, o valor da parcela é o valor total. No parcelado, divide-se.
+        let valorDaVez = (tipoRec === 'parcelado') ? (valorTotalDigitado / qtdParaGerar) : valorTotalDigitado;
+
+        // Regra do Nº do Pedido: No fixo, gera novo ID a partir do segundo lançamento
+        let docFinal = numDocOriginal;
+        if (tipoRec === 'fixo' && i > 0) {
+            docFinal = "Pagamento Fixo: Gera Novo Nº Pedido"
+        }
+
+        let rateioCalculado = dadosRateioBase.map(r => ({
+            ...r,
+            v: (valorDaVez * r.p) / 100
+        }));
+
+        const novoLanc = {
+            id: Date.now() + i,
+            doc: docFinal,
             fornecedor: document.getElementById('fornecedor').value,
             idFornecedor: document.getElementById('idFornecedor').value,
             descricao: document.getElementById('descricao').value,
@@ -1021,56 +1040,17 @@ function verDetalhes(tipo, valorFiltro) {
             tipoImposto: document.getElementById('tipoImposto').value,
             codServico: document.getElementById('codServico').value,
             tipo: document.getElementById('tipo').value,
-            valor: valorFinal,
-            data: dataBase,
+            valor: valorDaVez,
+            valorTotalPedido: valorTotalDigitado, 
+            data: dataParcela.toISOString().substring(0, 10),
             cc: document.getElementById('selCC').value,
-            rateio: dadosRateio,
-            tipoRateio: tipoRateioParaSalvar, // CAMPO ADICIONADO
+            rateio: rateioCalculado,
+            tipoRateio: nomeModelo,
+            parcela: (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "",
             status: document.getElementById('status').value,
             anexo: anexoBase64
         };
-
-        const idx = db.findIndex(l => l.id == novo.id);
-        if (idx > -1) db[idx] = novo;
-        else db.push(novo);
-
-    } else {
-        for (let i = 0; i < qtd; i++) {
-            let dataParcela = new Date(dataBase + 'T00:00:00');
-            dataParcela.setMonth(dataParcela.getMonth() + i);
-
-            let vParcela = (tipoRec === 'parcelado') ? (valorFinal / qtd) : valorFinal;
-
-            let docFinal = (tipoRec === 'fixo' && i > 0) 
-                ? "⚠️ PEDIDO FIXO: GERAR NOVO Nº PEDIDO" 
-                : numDocOriginal;
-
-            let rateioParcela = dadosRateio.map(r => ({
-                ...r,
-                v: (vParcela * r.p) / 100
-            }));
-
-            db.push({
-                id: Date.now() + i,
-                doc: docFinal,
-                fornecedor: document.getElementById('fornecedor').value,
-                idFornecedor: document.getElementById('idFornecedor').value,
-                descricao: document.getElementById('descricao').value,
-                dataEmissao: document.getElementById('dataEmissao').value,
-                numNF: document.getElementById('numNF').value,
-                tipoImposto: document.getElementById('tipoImposto').value,
-                codServico: document.getElementById('codServico').value,
-                tipo: document.getElementById('tipo').value,
-                valor: vParcela,
-                data: dataParcela.toISOString().substring(0, 10),
-                cc: document.getElementById('selCC').value,
-                rateio: rateioParcela,
-                tipoRateio: tipoRateioParaSalvar, // CAMPO ADICIONADO
-                parcela: `${(i + 1).toString().padStart(2, '0')}/${qtd.toString().padStart(2, '0')}`,
-                status: document.getElementById('status').value,
-                anexo: anexoBase64
-            });
-        }
+        db.push(novoLanc);
     }
 
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
@@ -1125,6 +1105,7 @@ function verDetalhes(tipo, valorFiltro) {
         document.getElementById('status').value = l.status || 'pendente';
         document.getElementById('recorrencia').value = 'unico'; 
         document.getElementById('qtdParcelas').value = 1;
+	document.getElementById('btnExcluir').style.display = 'block';
 
         // 2. Reseta e carrega o anexo
         anexoBase64 = l.anexo || '';
@@ -1183,49 +1164,46 @@ function verDetalhes(tipo, valorFiltro) {
         alert("Erro ao abrir o lançamento. Verifique o console.");
     }
 }
-    function excluirLançamento() {
-    const idAtual = document.getElementById('editId').value;
-    const itemAtual = db.find(i => i.id === idAtual);
-    if (!itemAtual) return;
+   function excluirLançamento() {
+    const id = document.getElementById('editId').value;
+    const lancamento = db.find(l => l.id == id);
+    if (!lancamento) return;
 
-    // NOVA LÓGICA: Verifica se existem outros registros do mesmo fornecedor 
-    // com o mesmo valor total original, indicando um grupo.
-    const grupo = db.filter(i => i.fornecedor === itemAtual.fornecedor && i.valorTotalOriginal === itemAtual.valorTotalOriginal);
-    const ehParteDeGrupo = grupo.length > 1;
-
-    // Se NÃO for grupo, exclui direto
-    if (!ehParteDeGrupo) {
-        if (confirm("Deseja excluir este lançamento único?")) {
-            db = db.filter(i => i.id !== idAtual);
+    // Se NÃO for parcelado/fixo (não tem a barra de parcela 01/12), exclui direto
+    if (!lancamento.parcela) {
+        if (confirm("Deseja excluir este lançamento?")) {
+            db = db.filter(item => item.id != id);
             finalizarExclusao();
         }
-        return;
+    } else {
+        // Se for recorrente, abre o novo modal de opções
+        document.getElementById('modalConfirmarExclusao').style.display = 'flex';
     }
+}
 
-    // Se FOR grupo (mesmo sendo a 1ª parcela), abre as opções
-    const modo = prompt(
-        "Este item faz parte de um grupo de lançamentos (Fixo/Parcelado).\n\n" +
-        "1 - Apagar APENAS este\n" +
-        "2 - Apagar ESTE E OS PRÓXIMOS (futuros)\n" +
-        "3 - Apagar TODO O GRUPO (todos os meses)"
-    );
+function executarExclusao(modo) {
+    const id = document.getElementById('editId').value;
+    const atual = db.find(l => l.id == id);
+    if (!atual) return;
 
-    if (modo === "1") {
-        db = db.filter(i => i.id !== idAtual);
+    // Pega o radical do documento (ex: se for "Doc 123 01/12", pega "Doc 123")
+    // Ou usa o número do pedido fixo para agrupar
+    const docBase = atual.doc; 
+
+    if (modo === 'unico') {
+        db = db.filter(item => item.id != id);
     } 
-    else if (modo === "2") {
-        db = db.filter(i => {
-            const mesmaOrigem = i.fornecedor === itemAtual.fornecedor && i.valorTotalOriginal === itemAtual.valorTotalOriginal;
-            const dataMaiorOuIgual = i.data >= itemAtual.data;
-            return !(mesmaOrigem && dataMaiorOuIgual);
+    else if (modo === 'futuros') {
+        // Exclui o atual e qualquer um do mesmo documento com data igual ou maior
+        db = db.filter(item => {
+            const mesmoDoc = (item.doc === docBase);
+            const dataFutura = (item.data >= atual.data);
+            return !(mesmoDoc && dataFutura);
         });
     } 
-    else if (modo === "3") {
-        if (confirm(`Remover todos os ${grupo.length} lançamentos deste grupo?`)) {
-            db = db.filter(i => !(i.fornecedor === itemAtual.fornecedor && i.valorTotalOriginal === itemAtual.valorTotalOriginal));
-        } else { return; }
-    } else {
-        return;
+    else if (modo === 'todos') {
+        // Exclui todos que tenham o mesmo número de documento
+        db = db.filter(item => item.doc !== docBase);
     }
 
     finalizarExclusao();
@@ -1233,9 +1211,9 @@ function verDetalhes(tipo, valorFiltro) {
 
 function finalizarExclusao() {
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    fecharModal('modalConfirmarExclusao');
     fecharModal('modalLanc');
     atualizarSaldos();
-    alert("Exclusão realizada com sucesso!");
 }
 // Adicione esta função que estava faltando
 function abrirConfig() { 
@@ -1492,6 +1470,16 @@ function abrirArquivoEmTelaCheia() {
         </div>
         <div id="visualizadorFull" style="flex-grow: 1; width: 100%; background: #eee; border-radius: 10px; overflow: hidden; display: flex; justify-content: center; align-items: center;">
             </div>
+    </div>
+</div>
+<div id="modalConfirmarExclusao" class="modal" style="z-index: 3000;">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <h4>Como deseja excluir?</h4>
+        <p style="font-size: 0.8rem; color: #666;">Este lançamento faz parte de uma série (recorrente/parcelado).</p>
+        <button onclick="executarExclusao('unico')" style="width:100%; margin-bottom:10px; background:var(--danger); color:white;">Excluir apenas este</button>
+        <button onclick="executarExclusao('futuros')" style="width:100%; margin-bottom:10px; background:var(--danger); color:white;">Excluir este e os futuros</button>
+        <button onclick="executarExclusao('todos')" style="width:100%; margin-bottom:10px; background:var(--danger); color:white;">Excluir todos da série</button>
+        <button onclick="fecharModal('modalConfirmarExclusao')" style="width:100%; background:#ccc;">Cancelar</button>
     </div>
 </div>
 </body>
