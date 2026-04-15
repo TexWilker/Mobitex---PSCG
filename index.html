@@ -161,6 +161,12 @@
 </style>
 </head>
 <body>
+<button class="btn-export" onclick="document.getElementById('importadorCSV').click()" 
+        style="bottom: 240px; right: 32px; background: var(--info);" title="Importar Planilha">
+    📥
+</button>
+
+<input type="file" id="importadorCSV" style="display:none" accept=".csv" onchange="processarPlanilha(event)">
 <button class="btn-export btn-sap" onclick="exportarPlanilhaPorMes()" title="Exportar SAP">
     📋
 </button>
@@ -274,7 +280,7 @@
 </div>
 <div>
     <label class="label-f">Nº NOTA FISCAL (NF)</label>
-    <input type="text" id="numNF" placeholder="000.000" style="width: 100%;">
+    <input type="text" id="numNF" placeholder="Nº da Nota Fiscal">
 </div>
     <div>
         <label class="label-f">TIPO DE IMPOSTO</label>
@@ -481,6 +487,92 @@ function mudarAbaPrincipal(abaNome) {
         btnResumo.style.background = '#eee';
         btnResumo.style.color = 'var(--dark)';
     }
+}
+function processarPlanilha(event) {
+    const arquivo = event.target.files[0];
+    if (!arquivo) return;
+
+    const leitor = new FileReader();
+    leitor.onload = function(e) {
+        try {
+            let conteudo = e.target.result;
+
+            // Passo 1: Remover quebras de linha dentro de aspas (essencial para não dar erro técnico)
+            conteudo = conteudo.replace(/"([^"]*)"/g, (m, p1) => p1.replace(/\r?\n|\r/g, " "));
+
+            const linhas = conteudo.split(/\r?\n/);
+            let contagem = 0;
+            const novasEntradas = [];
+
+            for (let i = 1; i < linhas.length; i++) {
+                let texto = linhas[i].trim();
+                if (!texto || texto.split(';').length < 5) continue;
+
+                // Divide por ponto e vírgula e limpa aspas e espaços
+                const col = texto.split(";").map(s => s.trim().replace(/^"|"$/g, ''));
+
+                // Mapeamento baseado na sua estrutura Real:
+                const pedido      = col[0];  // Col A
+                const fornecedor  = col[2];  // Col C
+                const descricao   = col[3];  // Col D
+                const dataEmissao = col[4];  // Col E (Importante)
+                const numeroNF    = col[5];  // Col F (Importante)
+                const valorBruto  = col[8];  // Col I
+
+                if (valorBruto) {
+                    // Converte valor brasileiro (1.200,50) para decimal (1200.50)
+                    const valorNum = parseFloat(valorBruto.replace(/\./g, '').replace(',', '.')) || 0;
+
+                    const novoLancamento = {
+                        id: Date.now() + Math.random(),
+                        doc: pedido,
+                        fornecedor: fornecedor,
+                        descricao: descricao,
+                        
+                        // Campos que o formulário do MobiTex PSCG usa:
+                        emissao: formatarDataParaISO(dataEmissao), 
+                        nf: numeroNF,
+                        
+                        valor: valorNum,
+                        tipoImposto: col[6],
+                        codServico: col[7],
+                        data: formatarDataParaISO(col[9]) || new Date().toISOString().substring(0, 10),
+                        cc: col[11] || "Suprimentos",
+                        status: (col[12] && col[12].toUpperCase().includes("Enviado")) ? "pago" : "pendente",
+                        tipo: "saida",
+                        rateio: []
+                    };
+
+                    novasEntradas.push(novoLancamento);
+                    contagem++;
+                }
+            }
+
+            if (contagem > 0) {
+                db.push(...novasEntradas);
+                localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+                alert("Sucesso! " + contagem + " lançamentos importados com NF e Emissão.");
+                location.reload(); // Recarrega a página para garantir que tudo apareça
+            } else {
+                alert("Nenhum dado lido. Verifique se o arquivo é CSV separado por ponto e vírgula.");
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Erro ao processar: verifique se há símbolos estranhos na planilha.");
+        }
+    };
+
+    leitor.readAsText(arquivo, "ISO-8859-1");
+}
+
+function formatarDataParaISO(dataStr) {
+    if (!dataStr) return "";
+    const partes = dataStr.split('/');
+    if (partes.length === 3) {
+        // Transforma 14/04/2026 em 2026-04-14 (formato que o campo do formulário aceita)
+        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+    }
+    return "";
 }
 function previewArquivo() {
     const file = document.getElementById('arquivoAnexo').files[0];
@@ -900,35 +992,60 @@ function toggleParcelas() {
                 }
 
                 // Tratamento de Valores e Cores (Correção NaN e Destaque Vermelho)
-                const valorTotalNum = parseFloat(l.valorTotalPedido || 0);
-                const valorParcelaNum = parseFloat(l.valor || 0);
+               const valorTotalNum = parseFloat(l.valorTotalPedido || 0);
+const valorParcelaNum = parseFloat(l.valor || 0);
 
-                const valorDisplay = l.parcela 
-                    ? `<small style="display:block; font-size:0.6rem; color:#999;">Total: R$ ${valorTotalNum.toFixed(2)}</small>
-                       <b style="color:var(--danger);">Parc: R$ ${valorParcelaNum.toFixed(2)}</b>` // Vermelho se for parcela
-                    : `<b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'};">R$ ${valorParcelaNum.toFixed(2)}</b>`;
+// Criamos o HTML dos valores
 
-                return `
-                    <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; padding: 10px 15px;">
-                        <div class="list-info" style="flex-grow: 1;">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
-                                <b style="color:var(--info); font-size: 0.85rem;">${l.doc} ${infoParcela}</b>
-                                <span style="font-size: 0.7rem; color: #95a5a5;">${l.data.split('-').reverse().join('/')}</span>
-                            </div>
-                            
-                            <span style="color:var(--dark); font-weight: 500; font-size: 0.8rem; display:block; margin-bottom: 5px;">${l.idFornecedor ? '[' + l.idFornecedor + '] ' : ''}${l.fornecedor}</span>
-                            
-                            <div style="display: flex; gap: 10px; font-size: 0.65rem; color: #666; border-top: 1px solid #f5f5f5; padding-top: 5px;">
-                                <div style="flex: 1;"><b>CC:</b> ${l.cc}</div>
-                                <div style="flex: 1;"><b>SERV:</b> ${l.codServico || '---'}</div>
-                                <div style="flex: 1; color: var(--purple); font-weight: bold;"><b>Centro/Rateio:</b> ${infoCentroCusto}</div>
-                            </div>
-                        </div>
-                        <div style="text-align: right; margin-left: 10px; min-width: 80px;">
-                            ${valorDisplay}
-                        </div>
+const valorDisplay = l.parcela 
+    ? `<div style="text-align: right; line-height: 1.2;">
+        <small style="display:block; font-size:1rem; color:#999;">Total: R$ ${valorTotalNum.toFixed(2)}</small>
+        <b style="color:var(--danger); font-size:1rem;">Parc: R$ ${valorParcelaNum.toFixed(2)}</b>
+       </div>`
+    : `<div style="text-align: right;">
+        <b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; font-size:1rem;">R$ ${valorParcelaNum.toFixed(2)}</b>
+    </div>`;
+
+return `
+    <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; padding: 10px 15px;">
+        <div class="list-info" style="flex-grow: 1;">
+            
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                <b style="color:var(--info); font-size: 0.85rem;">${l.doc} ${infoParcela}</b>
+                <span style="font-size: 0.7rem; color: #666;"><b>Data de Venc:</b> ${l.data.split('-').reverse().join('/')}</span>
+            </div>
+            
+            <span style="color:var(--dark); font-weight: 500; font-size: 1rem; display:block; margin-bottom: 5px;">
+                ${l.idFornecedor ? '[' + l.idFornecedor + '] ' : ''}${l.fornecedor}
+            </span>
+            
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; font-size: 0.65rem; color: #666; border-top: 1px solid #f5f5f5; padding-top: 5px;">
+                
+                <div style="display: flex; gap: 15px; flex-grow: 1; overflow: hidden; align-items: flex-end;">
+                    <div style="min-width: 200px;"><b>CONTA CONTÁBIL:</b><br>${l.cc || '---'}</div>
+                 <div style="min-width: 200px;"><b>SERV:</b><br>${l.codServico || '---'}</div>
+                    <div style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><b>DESC:</b><br>${l.descricao || '---'}</div>
+                    <div style="min-width: 120px; text-align: center;">
+            <b>CENTRO/RATEIO:</b><br>
+            <span style="color: var(--purple); font-weight: bold; display: block;">
+                ${infoCentroCusto}
+            </span>
                     </div>
-                `;
+<div style="min-width: 60px;">
+                        <b>NF:</b><br>
+                        <span style="font-weight: bold; color: var(--dark);">${l.nf || '---'}</span>
+                    </div>
+
+                   
+                </div>
+                </div>
+
+                <div style="flex-shrink: 5; margin-left: 100px;">
+                   ${valorDisplay}
+                </div>
+                </div>
+        </div>
+    </div>`;
             }).join('');
         }
     });
@@ -1093,7 +1210,7 @@ function verDetalhes(tipo, valorFiltro) {
             idFornecedor: document.getElementById('idFornecedor').value,
             descricao: document.getElementById('descricao').value,
             dataEmissao: document.getElementById('dataEmissao').value,
-            numNF: document.getElementById('numNF').value,
+            nf: document.getElementById('numNF').value,
             tipoImposto: document.getElementById('tipoImposto').value,
             codServico: document.getElementById('codServico').value,
             tipo: document.getElementById('tipo').value,
@@ -1156,7 +1273,7 @@ function verDetalhes(tipo, valorFiltro) {
         document.getElementById('idFornecedor').value = l.idFornecedor || '';
         document.getElementById('descricao').value = l.descricao || '';
         document.getElementById('dataEmissao').value = l.dataEmissao || '';
-        document.getElementById('numNF').value = l.numNF || '';
+        document.getElementById('numNF').value = l.nf || '';
         document.getElementById('tipoImposto').value = l.tipoImposto || 'nenhum';
         document.getElementById('codServico').value = l.codServico || '';
         document.getElementById('tipo').value = l.tipo || 'saida';
