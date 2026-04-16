@@ -337,6 +337,7 @@
             <select id="selectModeloPronto" onchange="aplicarModeloNoLancamento()" style="width: 100%; border: 1px solid var(--info);">
                 <option value="">Escolha o Tipo do Rateio</option>
             </select>
+            <button onclick="limparRateioAtual()" style="background: var(--danger); color: white; border: none; border-radius: 5px; cursor: pointer; padding: 0 10px;" title="Remover Rateio">🗑️Remover Rateio</button>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <small><b>CENTRO DE CUSTO - SIMPLES</b></small>
@@ -634,6 +635,24 @@ function abrirConfigRateio() {
     document.getElementById('containerConfigRateio').innerHTML = '';
     document.getElementById('nomeModeloRateio').value = '';
     abrirModal('modalConfigRateio');
+}
+function limparRateioAtual() {
+    if (confirm("Deseja realmente remover o rateio deste lançamento?")) {
+        // Limpa o select de modelos
+        document.getElementById('selectModeloPronto').value = "";
+        
+        // Limpa o container visual das linhas de rateio
+        const container = document.getElementById('containerRateio');
+        if (container) {
+            container.innerHTML = '';
+        }
+
+        // Se estiver em modo de edição, podemos marcar que o rateio deve ser vazio ao salvar
+        // A função salvarLançamento() já lê o conteúdo do containerRateio, 
+        // então se estiver vazio, o rateio será salvo como um array vazio [].
+        
+        alert("Rateio removido. Clique em SALVAR para confirmar as alterações.");
+    }
 }
 
 function adicionarLinhaConfigRateio() {
