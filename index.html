@@ -255,8 +255,15 @@
         <small><b>Visualização do Anexo</b></small>
         <button onclick="removerAnexo()" style="background:none; border:none; color:red; cursor:pointer; font-weight:bold;">&times; Remover</button>
     </div>
-    <div id="viewer" style="height: 300px; width: 100%; display: flex; align-items: center; justify-content: center;">
-        </div>
+    <div id="viewer" style="height: 300px; width: 100%; display: flex; align-items: center; justify-content: center;"></div>
+</div>
+
+<div class="full">
+    <label class="label-f">NF ANEXADA?</label>
+    <select id="nfAnexada" style="width: 100%;">
+        <option value="nao">Não</option>
+        <option value="sim">Sim</option>
+    </select>
 </div>
 <div>
     <label class="label-f">ID FORNECEDOR</label>
@@ -973,8 +980,19 @@ function toggleParcelas() {
         </div>`).join('');
 
     // Lista Principal (Filtrada por Mês e Busca)
-    const filtrados = db.filter(l => l.data.substring(0, 7) === mesF && (l.fornecedor.toLowerCase().includes(busca) || l.doc.toLowerCase().includes(busca)));
-    renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
+    const filtrados = db.filter(l => {
+    const mesL = l.data.substring(0, 7);
+    const termo = busca.toLowerCase();
+
+    return mesL === mesF && (
+        (l.fornecedor || '').toLowerCase().includes(termo) || 
+        (l.doc || '').toString().toLowerCase().includes(termo) || 
+        (l.idFornecedor || '').toString().toLowerCase().includes(termo) || // Adicionado ID
+        (l.nf || '').toString().toLowerCase().includes(termo)              // Adicionado NF
+    );
+});
+
+renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
 }
     function renderizarLista(itens) {
     const area = document.getElementById('areaListaPrincipal');
