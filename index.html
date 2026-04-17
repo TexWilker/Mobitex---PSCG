@@ -1045,7 +1045,7 @@ const valorDisplay = l.parcela
     </div>`;
 
 return `
-    <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; padding: 10px 15px;">
+    <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid;margin-bottom: 10px; border-bottom: 4px solid #bbb; ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; padding: 5px 15px;">
         <div class="list-info" style="flex-grow: 1;">
             
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
@@ -1069,12 +1069,12 @@ return `
                 ${infoCentroCusto}
             </span>
                     </div>
-<div style="min-width: 60px;">
+<div style="min-width: 100px;">
             <b>NF:</b><br>
             <span style="font-weight: bold; color: var(--dark);">${l.nf || '---'}</span>
         </div>
 
-        <div style="min-width: 80px; text-align: center;">
+        <div style="min-width: 200px; text-align: center;">
             <b>NF ANEXADA?</b><br>
             <span style="font-weight: bold; color: ${l.nfAnexada === 'sim' ? '#2ecc71' : '#e74c3c'};">
                 ${(l.nfAnexada || 'nao').toUpperCase()}
