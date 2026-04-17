@@ -1260,7 +1260,8 @@ function verDetalhes(tipo, valorFiltro) {
             parcela: (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "",
             status: document.getElementById('status').value,
             anexo: (tipoRec === 'parcelado' || i === 0) ? anexoBase64 : "",
-            
+            nfAnexada: document.getElementById('nfAnexada').value,
+
             data: dataParcela.toISOString().substring(0, 10),
             status: document.getElementById('status').value
         };
@@ -1321,7 +1322,7 @@ function verDetalhes(tipo, valorFiltro) {
         document.getElementById('recorrencia').value = 'unico'; 
         document.getElementById('qtdParcelas').value = 1;
 	document.getElementById('btnExcluir').style.display = 'block';
-
+        document.getElementById('nfAnexada').value = l.nfAnexada || 'nenhum';
         // 2. Reseta e carrega o anexo
         anexoBase64 = l.anexo || '';
 const btnVer = document.getElementById('btnVerAnexo');
