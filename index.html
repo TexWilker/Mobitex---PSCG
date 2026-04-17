@@ -260,7 +260,7 @@
 
 <div class="full">
     <label class="label-f">NF ANEXADA?</label>
-    <select id="nfAnexada" style="width: 100%;">
+    <select id="nfAnexada" style="width: 100%; background-color: #eee; pointer-events: none;" tabindex="-1">
         <option value="nao">Não</option>
         <option value="sim">Sim</option>
     </select>
@@ -631,9 +631,10 @@ function removerAnexo() {
         if (input) input.value = "";
 
         // Esconde os botões de ação
+        document.getElementById('anexo').value = ""
         document.getElementById('btnVerAnexo').style.display = 'none';
         document.getElementById('btnRemoverAnexo').style.display = 'none';
-        
+        document.getElementById('nfAnexada').value = 'nao';
         alert("Anexo removido da memória. Clique em SALVAR para confirmar no banco de dados.");
     }
 }
@@ -1635,9 +1636,13 @@ function removerItemConfig(index) {
 function tratarArquivo(e) {
     const file = e.target.files[0];
     if (file) {
+            document.getElementById('nfAnexada').value = 'sim';
         const reader = new FileReader();
         reader.onload = function(event) {
             anexoBase64 = event.target.result;
+            nomeAnexo = file.name;
+            tipoAnexo = file.type;
+            mostrarPreview()
             // Mostra a lupa e a lixeira assim que carregar
             document.getElementById('btnVerAnexo').style.display = 'inline-block';
             document.getElementById('btnRemoverAnexo').style.display = 'inline-block';
