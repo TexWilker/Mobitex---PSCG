@@ -1069,21 +1069,25 @@ return `
             </span>
                     </div>
 <div style="min-width: 60px;">
-                        <b>NF:</b><br>
-                        <span style="font-weight: bold; color: var(--dark);">${l.nf || '---'}</span>
-                    </div>
-
-                   
-                </div>
-                </div>
-
-                <div style="flex-shrink: 5; margin-left: 100px;">
-                   ${valorDisplay}
-                </div>
-                </div>
+            <b>NF:</b><br>
+            <span style="font-weight: bold; color: var(--dark);">${l.nf || '---'}</span>
         </div>
-    </div>`;
-            }).join('');
+
+        <div style="min-width: 80px; text-align: center;">
+            <b>NF ANEXADA?</b><br>
+            <span style="font-weight: bold; color: ${l.nfAnexada === 'sim' ? '#2ecc71' : '#e74c3c'};">
+                ${(l.nfAnexada || 'nao').toUpperCase()}
+            </span>
+        </div>
+
+        <div style="flex-shrink: 0; margin-left: 20px; text-align: right;">
+            ${valorDisplay}
+        </div>
+        </div> 
+        </div> 
+    </div> 
+   </div> `;
+           }).join('');
         }
     });
 
