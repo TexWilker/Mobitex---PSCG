@@ -432,6 +432,7 @@
     let abaAtivaConfig = 'bancos';
     let modelosRateio = JSON.parse(localStorage.getItem('mbtx_modelos_rateio')) || {};
     let anexoBase64 = "";
+    let lancamentoTemporarioParaSalvar = null; // Variável global para guardar os dados temporariamente
 
    window.onload = () => {
     // Configura os meses iniciais
@@ -450,6 +451,79 @@
     // Inicializa a tela
     atualizarSaldos();
 };
+
+
+function prepararSalvar() {
+    // 1. Coleta os dados do formulário (ajuste os IDs conforme seu código)
+    const dadosEditados = {
+        id: document.getElementById('edit_id').value,
+        fornecedor: document.getElementById('edit_fornecedor').value,
+        descricao: document.getElementById('edit_descricao').value,
+        valor: parseFloat(document.getElementById('edit_valor').value),
+        cc: document.getElementById('edit_cc').value,
+        codServico: document.getElementById('edit_servico').value,
+        nf: document.getElementById('edit_nf').value,
+        // ... outros campos que você deseja replicar
+    };
+
+    // Busca o item original para ver se ele tem "pai" ou parcelas (idGrupo)
+    const itemOriginal = buscarLancamentoPorId(dadosEditados.id); 
+
+    if (itemOriginal && itemOriginal.idGrupo) {
+        // Se tem idGrupo, ele faz parte de uma série. Abre o modal.
+        lancamentoTemporarioParaSalvar = dadosEditados;
+        document.getElementById('modalConfirmarEdicao').style.display = 'flex';
+    } else {
+        // Se não tem grupo, salva direto
+        executarUpdate(dadosEditados, 'unico');
+    }
+}
+
+function confirmarSalvarEdicao(modo) {
+    if (!lancamentoTemporarioParaSalvar) return;
+    
+    executarUpdate(lancamentoTemporarioParaSalvar, modo);
+    fecharModal('modalConfirmarEdicao');
+}
+
+function executarUpdate(dados, modo) {
+    // Se for 'unico', você apenas atualiza o item com dados.id
+    // Se for 'futuros', você faz um loop no seu array de dados:
+    
+    if (modo === 'futuros') {
+        const itemOriginal = buscarLancamentoPorId(dados.id);
+        const numeroParcelaAtual = parseInt(itemOriginal.parcela.split('/')[0]);
+
+        // Filtra todas as parcelas do mesmo grupo que sejam iguais ou maiores que a atual
+        banco_dados = banco_dados.map(item => {
+            if (item.idGrupo === itemOriginal.idGrupo) {
+                const numItem = parseInt(item.parcela.split('/')[0]);
+                if (numItem >= numeroParcelaAtual) {
+                    // Retorna o item com os campos replicados, mas mantendo a data e a parcela original de cada um
+                    return {
+                        ...item,
+                        fornecedor: dados.fornecedor,
+                        descricao: dados.descricao,
+                        cc: dados.cc,
+                        codServico: dados.codServico,
+                        nf: dados.nf,
+                        // Nota: Geralmente não replicamos a DATA e o número da PARCELA
+                    };
+                }
+            }
+            return item;
+        });
+    } else {
+        // Lógica normal de update para um único ID
+        const index = banco_dados.findIndex(t => t.id == dados.id);
+        banco_dados[index] = { ...banco_dados[index], ...dados };
+    }
+
+    // Atualiza a tela e salva no localStorage/Banco
+    salvarNoStorage();
+    renderizarLista(banco_dados);
+    fecharModal('modalEdicao'); 
+}
 function vincularIdFornecedor(nomeDigitado) {
     // Procura se o nome digitado existe na lista de fornecedores cadastrados
     const fornecedorEncontrado = fornecedoresCadastrados.find(f => f.nome === nomeDigitado);
@@ -1765,6 +1839,23 @@ function abrirArquivoEmTelaCheia() {
         <button onclick="executarExclusao('futuros')" style="width:100%; margin-bottom:10px; background:var(--danger); color:white;">Excluir este e os futuros</button>
         <button onclick="executarExclusao('todos')" style="width:100%; margin-bottom:10px; background:var(--danger); color:white;">Excluir todos da série</button>
         <button onclick="fecharModal('modalConfirmarExclusao')" style="width:100%; background:#ccc;">Cancelar</button>
+    </div>
+</div>
+<div id="modalConfirmarEdicao" class="modal" style="z-index: 3000; display:none;">
+    <div class="modal-content" style="max-width: 400px; text-align: center; padding: 25px; border-radius: 20px;">
+        <h4 style="margin-top:0;">Deseja replicar as alterações?</h4>
+        <p style="font-size: 0.85rem; color: #666; margin-bottom: 20px;">
+            Este lançamento possui parcelas. Como deseja salvar as alterações?
+        </p>
+        <button onclick="confirmarSalvarEdicao('unico')" style="width:100%; margin-bottom:10px; background:var(--info); color:white; border:none; padding:12px; border-radius:10px; cursor:pointer; font-weight:bold;">
+            ALTERAR SOMENTE ESTE
+        </button>
+        <button onclick="confirmarSalvarEdicao('futuros')" style="width:100%; margin-bottom:10px; background:var(--dark); color:white; border:none; padding:12px; border-radius:10px; cursor:pointer; font-weight:bold;">
+            ALTERAR ESTE E AS DEMAIS PARCELAS
+        </button>
+        <button onclick="fecharModal('modalConfirmarEdicao')" style="width:100%; background:#eee; color:#666; border:none; padding:10px; border-radius:10px; cursor:pointer;">
+            CANCELAR
+        </button>
     </div>
 </div>
 </body>
