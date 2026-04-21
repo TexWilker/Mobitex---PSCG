@@ -158,6 +158,31 @@
     display: flex;
     flex-direction: column;
 }
+/* Container da linha da transação */
+.transacao-item {
+    display: grid;
+    /* Define larguras fixas para colunas sensíveis e flexível para a descrição */
+    /* Exemplo: Data (80px), Descrição (flexível), Conta (120px), Valor (100px), Ícone (40px) */
+    grid-template-columns: 85px 1fr 150px 110px 45px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+/* Forçar textos longos a não quebrarem a linha e usarem "..." */
+.truncated-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Garantir que o valor fique sempre alinhado à direita */
+.valor-col {
+    text-align: right;
+    font-weight: bold;
+    white-space: nowrap;
+}
 </style>
 </head>
 <body>
@@ -1019,7 +1044,6 @@ renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
             htmlFinal += grupos[status].map(l => {
                 const infoParcela = l.parcela ? `<span style="background:#eee; padding:2px 5px; border-radius:4px; font-size:0.7rem; margin-left:5px;">${l.parcela}</span>` : '';
                 
-                // Lógica de identificação do Centro de Custo ou Rateio
                 let infoCentroCusto = "---";
                 if (l.rateio && l.rateio.length > 0) {
                     if (l.rateio.length === 1) {
@@ -1029,66 +1053,76 @@ renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
                     }
                 }
 
-                // Tratamento de Valores e Cores (Correção NaN e Destaque Vermelho)
-               const valorTotalNum = parseFloat(l.valorTotalPedido || 0);
-const valorParcelaNum = parseFloat(l.valor || 0);
+                const valorTotalNum = parseFloat(l.valorTotalPedido || 0);
+                const valorParcelaNum = parseFloat(l.valor || 0);
 
-// Criamos o HTML dos valores
+                const valorDisplay = l.parcela 
+                    ? `<div style="line-height: 1.2;">
+                        <small style="display:block; font-size:0.65rem; color:#999;">Total: R$ ${valorTotalNum.toFixed(2)}</small>
+                        <b style="color:var(--danger); font-size:0.9rem;">Parc: R$ ${valorParcelaNum.toFixed(2)}</b>
+                       </div>`
+                    : `<div style="display: flex; align-items: center; height: 100%;">
+                        <b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; font-size:0.9rem;">R$ ${valorParcelaNum.toFixed(2)}</b>
+                    </div>`;
 
-const valorDisplay = l.parcela 
-    ? `<div style="text-align: right; line-height: 1.2;">
-        <small style="display:block; font-size:1rem; color:#999;">Total: R$ ${valorTotalNum.toFixed(2)}</small>
-        <b style="color:var(--danger); font-size:1rem;">Parc: R$ ${valorParcelaNum.toFixed(2)}</b>
-       </div>`
-    : `<div style="text-align: right;">
-        <b style="color:${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; font-size:1rem;">R$ ${valorParcelaNum.toFixed(2)}</b>
-    </div>`;
+                return `
+                <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; margin-bottom: 10px; border-bottom: 4px solid #bbb; padding: 8px 15px; background: white; border-radius: 4px; cursor: pointer;">
+                    <div class="list-info" style="width: 100%;">
+                        
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <b style="color:var(--info); font-size: 0.8rem;">${l.doc} ${infoParcela}</b>
+                            <span style="font-size: 0.7rem; color: #444; background: #f8f9fa; padding: 2px 8px; border: 1px solid #eee; border-radius: 4px;">
+                                <b>VENC:</b> ${l.data.split('-').reverse().join('/')}
+                            </span>
+                        </div>
+                        
+                        <span style="color:var(--dark); font-weight: 600; font-size: 0.95rem; display:block; margin-bottom: 8px;">
+                            ${l.idFornecedor ? '<small style="color:#777;">[' + l.idFornecedor + ']</small> ' : ''}${l.fornecedor}
+                        </span>
+                        
+                        <div style="display: grid; grid-template-columns: 130px 120px 80px 1fr 60px 70px 130px; gap: 12px; align-items: end; font-size: 0.62rem; color: #666; border-top: 1px solid #f5f5f5; padding-top: 6px;">
+                            
+                            <div style="text-align: left; overflow: hidden;">
+                                <b>CENTRO/RATEIO:</b><br>
+                                <span style="color: var(--purple); font-weight: bold; display: block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">
+                                    ${infoCentroCusto}
+                                </span>
+                            </div>
 
-return `
-    <div class="list-item" onclick="editarLançamento('${l.id}')" style="border-left: 4px solid;margin-bottom: 10px; border-bottom: 4px solid #bbb; ${l.tipo==='entrada'?'var(--primary)':'var(--danger)'}; padding: 5px 15px;">
-        <div class="list-info" style="flex-grow: 1;">
-            
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
-                <b style="color:var(--info); font-size: 0.85rem;">${l.doc} ${infoParcela}</b>
-                <span style="font-size: 0.7rem; color: #666;"><b>Data de Venc:</b> ${l.data.split('-').reverse().join('/')}</span>
-            </div>
-            
-            <span style="color:var(--dark); font-weight: 500; font-size: 1rem; display:block; margin-bottom: 5px;">
-                ${l.idFornecedor ? '[' + l.idFornecedor + '] ' : ''}${l.fornecedor}
-            </span>
-            
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; font-size: 0.65rem; color: #666; border-top: 1px solid #f5f5f5; padding-top: 5px;">
-                
-                <div style="display: flex; gap: 15px; flex-grow: 1; overflow: hidden; align-items: flex-end;">
-                    <div style="min-width: 200px;"><b>CONTA CONTÁBIL:</b><br>${l.cc || '---'}</div>
-                 <div style="min-width: 200px;"><b>SERV:</b><br>${l.codServico || '---'}</div>
-                    <div style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><b>DESC:</b><br>${l.descricao || '---'}</div>
-                    <div style="min-width: 120px; text-align: center;">
-            <b>CENTRO/RATEIO:</b><br>
-            <span style="color: var(--purple); font-weight: bold; display: block;">
-                ${infoCentroCusto}
-            </span>
-                    </div>
-<div style="min-width: 100px;">
-            <b>NF:</b><br>
-            <span style="font-weight: bold; color: var(--dark);">${l.nf || '---'}</span>
-        </div>
+                            <div style="overflow: hidden;">
+                                <b>CONTA CONTÁBIL:</b><br>
+                                <span style="display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; color:#333;">${l.cc || '---'}</span>
+                            </div>
+                            
+                            <div style="overflow: hidden;">
+                                <b>SERV:</b><br>
+                                <span style="display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; color:#333;">${l.codServico || '---'}</span>
+                            </div>
+                            
+                            <div style="overflow: hidden;">
+                                <b>DESCRIÇÃO:</b><br>
+                                <span style="display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; color:#333;">${l.descricao || '---'}</span>
+                            </div>
 
-        <div style="min-width: 200px; text-align: center;">
-            <b>NF ANEXADA?</b><br>
-            <span style="font-weight: bold; color: ${l.nfAnexada === 'sim' ? '#2ecc71' : '#e74c3c'};">
-                ${(l.nfAnexada || 'nao').toUpperCase()}
-            </span>
-        </div>
+                            <div style="text-align: center;">
+                                <b>NF:</b><br>
+                                <span style="font-weight: bold; color: var(--dark);">${l.nf || '---'}</span>
+                            </div>
 
-        <div style="flex-shrink: 0; margin-left: 20px; text-align: right;">
-            ${valorDisplay}
-        </div>
-        </div> 
-        </div> 
-    </div> 
-   </div> `;
-           }).join('');
+                            <div style="text-align: center;">
+                                <b>ANEXO?</b><br>
+                                <span style="font-weight: bold; color: ${l.nfAnexada === 'sim' ? '#2ecc71' : '#e74c3c'};">
+                                    ${(l.nfAnexada || 'nao').toUpperCase()}
+                                </span>
+                            </div>
+
+                            <div style="text-align: right; border-left: 1px solid #eee; padding-left: 5px;">
+                                ${valorDisplay}
+                            </div>
+                        </div> 
+                    </div> 
+                </div>`;
+            }).join('');
         }
     });
 
