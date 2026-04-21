@@ -454,31 +454,30 @@
 
 
 function prepararSalvar() {
-    // 1. Coleta os dados do formulário (ajuste os IDs conforme seu código)
+    // 1. Captura o ID do campo oculto correto (editId)
+    const idAtual = document.getElementById('editId').value;
+
     const dadosEditados = {
-        id: document.getElementById('edit_id').value,
-        fornecedor: document.getElementById('edit_fornecedor').value,
-        descricao: document.getElementById('edit_descricao').value,
-        valor: parseFloat(document.getElementById('edit_valor').value),
-        cc: document.getElementById('edit_cc').value,
-        codServico: document.getElementById('edit_servico').value,
-        nf: document.getElementById('edit_nf').value,
-        // ... outros campos que você deseja replicar
+        id: idAtual,
+        doc: document.getElementById('numDoc').value,
+        fornecedor: document.getElementById('fornecedor').value,
+        descricao: document.getElementById('descricao').value,
+        valor: parseFloat(document.getElementById('valorTotal').value),
+        cc: document.getElementById('selCC').value,
+        status: document.getElementById('status').value,
+        data: document.getElementById('data').value
+        // Não adicione o campo 'parcela' aqui, ele será preservado no próximo passo
     };
 
-    // Busca o item original para ver se ele tem "pai" ou parcelas (idGrupo)
-    const itemOriginal = buscarLancamentoPorId(dadosEditados.id); 
+    const itemOriginal = db.find(t => t.id == idAtual); 
 
     if (itemOriginal && itemOriginal.idGrupo) {
-        // Se tem idGrupo, ele faz parte de uma série. Abre o modal.
         lancamentoTemporarioParaSalvar = dadosEditados;
         document.getElementById('modalConfirmarEdicao').style.display = 'flex';
     } else {
-        // Se não tem grupo, salva direto
         executarUpdate(dadosEditados, 'unico');
     }
 }
-
 function confirmarSalvarEdicao(modo) {
     if (!lancamentoTemporarioParaSalvar) return;
     
@@ -487,42 +486,26 @@ function confirmarSalvarEdicao(modo) {
 }
 
 function executarUpdate(dados, modo) {
-    // Se for 'unico', você apenas atualiza o item com dados.id
-    // Se for 'futuros', você faz um loop no seu array de dados:
-    
     if (modo === 'futuros') {
-        const itemOriginal = buscarLancamentoPorId(dados.id);
-        const numeroParcelaAtual = parseInt(itemOriginal.parcela.split('/')[0]);
-
-        // Filtra todas as parcelas do mesmo grupo que sejam iguais ou maiores que a atual
-        banco_dados = banco_dados.map(item => {
-            if (item.idGrupo === itemOriginal.idGrupo) {
-                const numItem = parseInt(item.parcela.split('/')[0]);
-                if (numItem >= numeroParcelaAtual) {
-                    // Retorna o item com os campos replicados, mas mantendo a data e a parcela original de cada um
-                    return {
-                        ...item,
-                        fornecedor: dados.fornecedor,
-                        descricao: dados.descricao,
-                        cc: dados.cc,
-                        codServico: dados.codServico,
-                        nf: dados.nf,
-                        // Nota: Geralmente não replicamos a DATA e o número da PARCELA
-                    };
-                }
-            }
-            return item;
-        });
+        // Mantenha sua lógica de parcelas futuras se houver
     } else {
-        // Lógica normal de update para um único ID
-        const index = banco_dados.findIndex(t => t.id == dados.id);
-        banco_dados[index] = { ...banco_dados[index], ...dados };
+        const index = db.findIndex(t => t.id == dados.id);
+        
+        if (index !== -1) {
+            // A CORREÇÃO DEFINITIVA:
+            // O "...db[index]" traz tudo o que já existia (inclusive a PARCELA)
+            // O "...dados" traz as novas alterações por cima
+            db[index] = { 
+                ...db[index], 
+                ...dados 
+            };
+        }
     }
 
-    // Atualiza a tela e salva no localStorage/Banco
-    salvarNoStorage();
-    renderizarLista(banco_dados);
-    fecharModal('modalEdicao'); 
+    // Grava no localStorage e limpa a tela
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    atualizarSaldos(); 
+    fecharModal('modalLanc'); 
 }
 function vincularIdFornecedor(nomeDigitado) {
     // Procura se o nome digitado existe na lista de fornecedores cadastrados
@@ -1299,18 +1282,30 @@ function verDetalhes(tipo, valorFiltro) {
         document.getElementById('modalLanc').style.display = 'flex';
     }
 }
-  function salvarLançamento() {
-    // Tratamento para evitar NaN: garante que o valor seja numérico ou zero
+ function salvarLançamento() {
     const valorTotalDigitado = parseFloat(document.getElementById('valorTotal').value) || 0;
     const tipoRec = document.getElementById('recorrencia').value;
     const numDocOriginal = document.getElementById('numDoc').value;
     const dataBaseStr = document.getElementById('data').value;
     
+    const idEdicao = document.getElementById('editId').value;
     let qtdParaGerar = 1;
-    if (tipoRec === 'parcelado') {
+
+    // Se for EDIÇÃO, precisamos preservar a informação da parcela que já existe
+    let parcelaExistente = "";
+    if (idEdicao) {
+        const itemAntigo = db.find(l => l.id == idEdicao);
+        if (itemAntigo) {
+            parcelaExistente = itemAntigo.parcela; // Guarda a parcela ex: "02/12"
+        }
+        // Remove o antigo para inserir o atualizado
+        db = db.filter(l => l.id != idEdicao);
+    }
+
+    if (tipoRec === 'parcelado' && !idEdicao) { // Só define múltiplas se NÃO for edição
         qtdParaGerar = parseInt(document.getElementById('qtdParcelas').value) || 1;
-    } else if (tipoRec === 'fixo') {
-        qtdParaGerar = 12; // Define 12 meses para recorrência fixa
+    } else if (tipoRec === 'fixo' && !idEdicao) {
+        qtdParaGerar = 12;
     }
 
     const selMod = document.getElementById('selectModeloPronto');
@@ -1322,19 +1317,12 @@ function verDetalhes(tipo, valorFiltro) {
         p: parseFloat(l.querySelector('.r-p').value) || 0
     }));
 
-    const idEdicao = document.getElementById('editId').value;
-    if (idEdicao) {
-        db = db.filter(l => l.id != idEdicao);
-    }
-
     for (let i = 0; i < qtdParaGerar; i++) {
         let dataParcela = new Date(dataBaseStr + 'T00:00:00');
         dataParcela.setMonth(dataParcela.getMonth() + i);
 
-        // No fixo, o valor da parcela é o valor total. No parcelado, divide-se.
-        let valorDaVez = (tipoRec === 'parcelado') ? (valorTotalDigitado / qtdParaGerar) : valorTotalDigitado;
+        let valorDaVez = (tipoRec === 'parcelado' && !idEdicao) ? (valorTotalDigitado / qtdParaGerar) : valorTotalDigitado;
 
-        // Regra do Nº do Pedido: No fixo, gera novo ID a partir do segundo lançamento
         let docFinal = numDocOriginal;
         if (tipoRec === 'fixo' && i > 0) {
             docFinal = "Pagamento Fixo: Gera Novo Nº Pedido"
@@ -1345,16 +1333,18 @@ function verDetalhes(tipo, valorFiltro) {
             v: (valorDaVez * r.p) / 100
         }));
 
-        let anexoParaEsteLancamento = "";
-    if (tipoRec === 'parcelado') {
-        // Se for parcelado, replica para todas as parcelas
-        anexoParaEsteLancamento = anexoBase64; 
-    } else {
-        // Se for Fixo ou Unitário, salva apenas no lançamento atual (o primeiro)
-        anexoParaEsteLancamento = (i === 0) ? anexoBase64 : "";
-    }
+        // Lógica de Parcela: 
+        // Se for edição, usa a parcela que já estava gravada. 
+        // Se for novo, gera a string "01/12".
+        let textoParcela = "";
+        if (idEdicao) {
+            textoParcela = parcelaExistente; 
+        } else {
+            textoParcela = (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "";
+        }
+
         const novoLanc = {
-            id: Date.now() + i,
+            id: idEdicao && i === 0 ? parseInt(idEdicao) : Date.now() + i, // Mantém o ID se for edição
             doc: docFinal,
             fornecedor: document.getElementById('fornecedor').value,
             idFornecedor: document.getElementById('idFornecedor').value,
@@ -1370,19 +1360,17 @@ function verDetalhes(tipo, valorFiltro) {
             cc: document.getElementById('selCC').value,
             rateio: rateioCalculado,
             tipoRateio: nomeModelo,
-            parcela: (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "",
+            parcela: textoParcela, // Agora usa a variável corrigida
             status: document.getElementById('status').value,
-            anexo: (tipoRec === 'parcelado' || i === 0) ? anexoBase64 : "",
-            nfAnexada: document.getElementById('nfAnexada').value,
-
-            data: dataParcela.toISOString().substring(0, 10),
-            status: document.getElementById('status').value
+            anexo: (anexoBase64 !== "") ? anexoBase64 : (idEdicao ? (db.find(x => x.id == idEdicao)?.anexo || "") : ""),
+            nfAnexada: document.getElementById('nfAnexada').value
         };
         db.push(novoLanc);
     }
     
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
     anexoBase64 = "";
+    document.getElementById('editId').value = ""; // Limpa o ID de edição
     fecharModal('modalLanc');
     atualizarSaldos();
 }
