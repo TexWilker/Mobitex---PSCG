@@ -433,7 +433,7 @@
     let modelosRateio = JSON.parse(localStorage.getItem('mbtx_modelos_rateio')) || {};
     let anexoBase64 = "";
     let lancamentoTemporarioParaSalvar = null; // Variável global para guardar os dados temporariamente
-
+    let lancamentoPendenteEdicao = null; 
    window.onload = () => {
     // Configura os meses iniciais
     const mesAtual = new Date().toISOString().substring(0, 7);
@@ -477,35 +477,72 @@ function prepararSalvar() {
     } else {
         executarUpdate(dadosEditados, 'unico');
     }
+}function finalizarAcao() {
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    fecharModal('modalLanc');
+    atualizarSaldos();
+    alert("Operação concluída!");
 }
 function confirmarSalvarEdicao(modo) {
-    if (!lancamentoTemporarioParaSalvar) return;
+    const idParaEditar = document.getElementById('editId').value;
+    const itemReferencia = db.find(t => t.id == idParaEditar);
     
-    executarUpdate(lancamentoTemporarioParaSalvar, modo);
-    fecharModal('modalConfirmarEdicao');
-}
+    // Captura os dados ATUAIS do modal antes de replicar
+    const novosDados = {
+        descricao: document.getElementById('descricao').value,
+        fornecedor: document.getElementById('fornecedor').value,
+        idFornecedor: document.getElementById('idFornecedor').value,
+        codServico: document.getElementById('codServico').value, // <-- ESTAVA FALTANDO AQUI
+        cc: document.getElementById('selCC').value,
+        tipo: document.getElementById('tipo').value,
+        status: document.getElementById('status').value,
+        tipoImposto: document.getElementById('tipoImposto').value,
+        nf: document.getElementById('numNF').value
+    };
 
-function executarUpdate(dados, modo) {
-    if (modo === 'futuros') {
-        // Mantenha sua lógica de parcelas futuras se houver
-    } else {
-        const index = db.findIndex(t => t.id == dados.id);
-        
-        if (index !== -1) {
-            // A CORREÇÃO DEFINITIVA:
-            // O "...db[index]" traz tudo o que já existia (inclusive a PARCELA)
-            // O "...dados" traz as novas alterações por cima
-            db[index] = { 
-                ...db[index], 
-                ...dados 
-            };
-        }
+    if (modo === 'unico') {
+        db = db.map(t => t.id == idParaEditar ? { ...t, ...novosDados } : t);
+    } else if (modo === 'futuros') {
+        db = db.map(t => {
+            // Se for do mesmo grupo e a data for igual ou maior que o que estamos editando
+            if (t.idGrupo === itemReferencia.idGrupo && t.data >= itemReferencia.data) {
+                return { 
+                    ...t, 
+                    ...novosDados, 
+                    id: t.id, 
+                    data: t.data, 
+                    parcela: t.parcela, 
+                    valor: t.valor,
+                    // Recalcula o rateio mantendo as proporções originais
+                    rateio: t.rateio.map(r => ({ ...r, v: (t.valor * r.p) / 100 }))
+                };
+            }
+            return t;
+        });
     }
 
-    // Grava no localStorage e limpa a tela
+    fecharModal('modalConfirmarEdicao');
+    finalizarEFechar(); // Sua função que salva no localStorage e limpa o modal
+}
+function executarUpdate(dadosNovos, modo) {
+    if (modo === 'unico') {
+        // Localiza o item pelo ID e substitui os dados
+        db = db.map(item => item.id == dadosNovos.id ? { ...item, ...dadosNovos } : item);
+    } else if (modo === 'futuros') {
+        // Lógica Mobills: localiza todos do mesmo grupo com data igual ou maior
+        const original = db.find(t => t.id == dadosNovos.id);
+        db = db.map(item => {
+            if (item.idGrupo === original.idGrupo && item.data >= original.data) {
+                return { ...item, ...dadosNovos, id: item.id, data: item.data };
+            }
+            return item;
+        });
+    }
+
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-    atualizarSaldos(); 
-    fecharModal('modalLanc'); 
+    fecharModal('modalLanc');
+    renderizarTransacoes(); // Recarrega a tabela
+
 }
 function vincularIdFornecedor(nomeDigitado) {
     // Procura se o nome digitado existe na lista de fornecedores cadastrados
@@ -1282,31 +1319,16 @@ function verDetalhes(tipo, valorFiltro) {
         document.getElementById('modalLanc').style.display = 'flex';
     }
 }
- function salvarLançamento() {
+
+
+function salvarLançamento() {
+    const editIdField = document.getElementById('editId');
+    const idEdicao = editIdField ? editIdField.value : "";
+    
     const valorTotalDigitado = parseFloat(document.getElementById('valorTotal').value) || 0;
     const tipoRec = document.getElementById('recorrencia').value;
-    const numDocOriginal = document.getElementById('numDoc').value;
     const dataBaseStr = document.getElementById('data').value;
-    
-    const idEdicao = document.getElementById('editId').value;
-    let qtdParaGerar = 1;
-
-    // Se for EDIÇÃO, precisamos preservar a informação da parcela que já existe
-    let parcelaExistente = "";
-    if (idEdicao) {
-        const itemAntigo = db.find(l => l.id == idEdicao);
-        if (itemAntigo) {
-            parcelaExistente = itemAntigo.parcela; // Guarda a parcela ex: "02/12"
-        }
-        // Remove o antigo para inserir o atualizado
-        db = db.filter(l => l.id != idEdicao);
-    }
-
-    if (tipoRec === 'parcelado' && !idEdicao) { // Só define múltiplas se NÃO for edição
-        qtdParaGerar = parseInt(document.getElementById('qtdParcelas').value) || 1;
-    } else if (tipoRec === 'fixo' && !idEdicao) {
-        qtdParaGerar = 12;
-    }
+    const numDocDigitado = document.getElementById('numDoc').value;
 
     const selMod = document.getElementById('selectModeloPronto');
     const nomeModelo = selMod.value ? selMod.options[selMod.selectedIndex].text : "";
@@ -1317,62 +1339,169 @@ function verDetalhes(tipo, valorFiltro) {
         p: parseFloat(l.querySelector('.r-p').value) || 0
     }));
 
+    // --- MODO EDIÇÃO ---
+    if (idEdicao) {
+        const itemAntigo = db.find(l => l.id == idEdicao);
+        const dadosNovos = {
+            doc: numDocDigitado,
+            descricao: document.getElementById('descricao').value,
+            fornecedor: document.getElementById('fornecedor').value,
+            idFornecedor: document.getElementById('idFornecedor').value,
+            codServico: document.getElementById('codServico').value,
+            dataEmissao: document.getElementById('dataEmissao').value,
+            nf: document.getElementById('numNF').value,
+            tipo: document.getElementById('tipo').value,
+            cc: document.getElementById('selCC').value,
+            status: document.getElementById('status').value, // Status atual do modal
+            tipoImposto: document.getElementById('tipoImposto').value,
+            valorTotalPedido: valorTotalDigitado,
+            tipoRateio: nomeModelo,
+            rateioBase: dadosRateioBase
+        };
+
+        if (itemAntigo && itemAntigo.idGrupo) {
+            lancamentoTemporarioParaSalvar = { id: idEdicao, novosDados: dadosNovos };
+            document.getElementById('modalConfirmarEdicao').style.display = 'flex';
+        } else {
+            db = db.map(t => t.id == idEdicao ? { ...t, ...dadosNovos, valor: t.valor } : t);
+            finalizarAcaoTotal();
+        }
+        return;
+    }
+
+    // --- MODO NOVO LANÇAMENTO ---
+    let qtdParaGerar = (tipoRec === 'parcelado') ? (parseInt(document.getElementById('qtdParcelas').value) || 1) : (tipoRec === 'fixo' ? 12 : 1);
+    const idGrupoNovo = Date.now();
+
     for (let i = 0; i < qtdParaGerar; i++) {
         let dataParcela = new Date(dataBaseStr + 'T00:00:00');
         dataParcela.setMonth(dataParcela.getMonth() + i);
+        let valorDaVez = (tipoRec === 'parcelado') ? (valorTotalDigitado / qtdParaGerar) : valorTotalDigitado;
 
-        let valorDaVez = (tipoRec === 'parcelado' && !idEdicao) ? (valorTotalDigitado / qtdParaGerar) : valorTotalDigitado;
-
-        let docFinal = numDocOriginal;
+        // Lógica do Pedido: Primeiro fixa o digitado, demais fixos texto especial
+        let docFinal = numDocDigitado;
         if (tipoRec === 'fixo' && i > 0) {
-            docFinal = "Pagamento Fixo: Gera Novo Nº Pedido"
+            docFinal = "Pagamento Fixo: Gera Novo Nº Pedido";
         }
 
-        let rateioCalculado = dadosRateioBase.map(r => ({
-            ...r,
-            v: (valorDaVez * r.p) / 100
-        }));
-
-        // Lógica de Parcela: 
-        // Se for edição, usa a parcela que já estava gravada. 
-        // Se for novo, gera a string "01/12".
-        let textoParcela = "";
-        if (idEdicao) {
-            textoParcela = parcelaExistente; 
-        } else {
-            textoParcela = (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "";
-        }
-
-        const novoLanc = {
-            id: idEdicao && i === 0 ? parseInt(idEdicao) : Date.now() + i, // Mantém o ID se for edição
+        db.push({
+            id: Date.now() + i + Math.random(),
+            idGrupo: (tipoRec !== 'unico') ? idGrupoNovo : null,
             doc: docFinal,
             fornecedor: document.getElementById('fornecedor').value,
             idFornecedor: document.getElementById('idFornecedor').value,
             descricao: document.getElementById('descricao').value,
+            codServico: document.getElementById('codServico').value,
             dataEmissao: document.getElementById('dataEmissao').value,
             nf: document.getElementById('numNF').value,
-            tipoImposto: document.getElementById('tipoImposto').value,
-            codServico: document.getElementById('codServico').value,
             tipo: document.getElementById('tipo').value,
             valor: valorDaVez,
-            valorTotalPedido: valorTotalDigitado, 
+            valorTotalPedido: valorTotalDigitado,
             data: dataParcela.toISOString().substring(0, 10),
             cc: document.getElementById('selCC').value,
-            rateio: rateioCalculado,
-            tipoRateio: nomeModelo,
-            parcela: textoParcela, // Agora usa a variável corrigida
             status: document.getElementById('status').value,
-            anexo: (anexoBase64 !== "") ? anexoBase64 : (idEdicao ? (db.find(x => x.id == idEdicao)?.anexo || "") : ""),
-            nfAnexada: document.getElementById('nfAnexada').value
-        };
-        db.push(novoLanc);
+            tipoImposto: document.getElementById('tipoImposto').value,
+            parcela: (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "",
+            rateio: dadosRateioBase.map(r => ({ ...r, v: (valorDaVez * r.p) / 100 })),
+            tipoRateio: nomeModelo,
+            anexo: anexoBase64 || ""
+        });
     }
-    
+    finalizarAcaoTotal();
+}// AJUSTE NA REPLICAÇÃO PARA O CÓDIGO DE SERVIÇO
+function confirmarSalvarEdicao(modo) {
+    const { id, novosDados } = lancamentoTemporarioParaSalvar;
+    const original = db.find(t => t.id == id);
+
+    if (modo === 'unico') {
+        db = db.map(t => t.id == id ? { ...t, ...novosDados, valor: t.valor } : t);
+    } else {
+        // MODO REPLICAR (ESTILO MOBILLS)
+        db = db.map(t => {
+            if (t.idGrupo === original.idGrupo && t.data >= original.data) {
+                
+                // Preparar dados para replicação
+                const dadosParaReplicar = { ...novosDados };
+                
+                // --- REGRA DE PROTEÇÃO ---
+                // Sempre protege o STATUS (independente de ser fixo ou parcelado)
+                delete dadosParaReplicar.status;
+
+                // Se o tipo original da série for FIXO, protege também o Nº de Pedido
+                // Verificamos se no doc original existe o texto de pagamento fixo
+                const ehFixo = t.doc.includes("Pagamento Fixo") || original.recorrencia === 'fixo';
+                if (ehFixo) {
+                    delete dadosParaReplicar.doc;
+                }
+
+                return { 
+                    ...t, 
+                    ...dadosParaReplicar, 
+                    id: t.id, 
+                    data: t.data, 
+                    parcela: t.parcela, 
+                    valor: t.valor,
+                    // Garante que mantém o que já estava se for fixo, ou atualiza se for parcelado
+                    doc: ehFixo ? t.doc : novosDados.doc, 
+                    status: t.status, 
+                    rateio: novosDados.rateioBase.map(r => ({ ...r, v: (t.valor * r.p) / 100 }))
+                };
+            }
+            return t;
+        });
+    }
+    fecharModal('modalConfirmarEdicao');
+    finalizarAcaoTotal();
+}
+function finalizarAcaoTotal() {
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    fecharModal('modalLanc');
+    if (typeof atualizarSaldos === 'function') atualizarSaldos();
+    if (typeof renderizarTransacoes === 'function') renderizarTransacoes();
+    
+    // Limpeza fundamental para não dar erro no próximo clique
+    document.getElementById('editId').value = "";
     anexoBase64 = "";
-    document.getElementById('editId').value = ""; // Limpa o ID de edição
+    lancamentoTemporarioParaSalvar = null;
+}
+function executarUpdateFinal(id, dados, modo) {
+    const itemReferencia = db.find(l => l.id == id);
+
+    db = db.map(item => {
+        // MODO ÚNICO: Altera só o ID que abrimos
+        if (modo === 'unico' && item.id == id) {
+            return { ...item, ...dados, rateio: recalcularRateio(item.valor, dados.rateioBase) };
+        }
+        
+        // MODO FUTUROS: Altera este e todos do mesmo grupo com data igual ou maior
+        if (modo === 'futuros' && item.idGrupo === itemReferencia.idGrupo && item.data >= itemReferencia.data) {
+            return { 
+                ...item, 
+                ...dados, 
+                id: item.id,     // Não muda o ID
+                data: item.data, // Não muda a data de vencimento
+                parcela: item.parcela, // Não muda o número da parcela
+                valor: item.valor,     // Mantém o valor individual (importante para fixos)
+                rateio: recalcularRateio(item.valor, dados.rateioBase)
+            };
+        }
+        return item;
+    });
+
+    // Salva e atualiza
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
     fecharModal('modalLanc');
     atualizarSaldos();
+    lancamentoPendenteEdicao = null;
+    document.getElementById('editId').value = "";
+}
+
+// Função auxiliar para ajustar os valores de rateio baseados na porcentagem
+function recalcularRateio(valorItem, rateioBase) {
+    return rateioBase.map(r => ({
+        ...r,
+        v: (valorItem * r.p) / 100
+    }));
 }
    function addLinhaRateio(conta = "", perc = 0) {
     const container = document.getElementById('containerRateio');
