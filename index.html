@@ -7,6 +7,8 @@
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
       import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, writeBatch }
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+      import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+        from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
       const firebaseConfig = {
         apiKey: "AIzaSyBx2aaNJuDfPBggUKhSvkibAHhsgUuol-U",
@@ -20,6 +22,46 @@
 
       const _app = initializeApp(firebaseConfig);
       const _db  = getFirestore(_app);
+      const _auth = getAuth(_app);
+
+      // Monitora estado de autenticação
+      onAuthStateChanged(_auth, async (user) => {
+        if (user) {
+          window._fbUser = user;
+          document.getElementById('modalLogin') && (document.getElementById('modalLogin').style.display = 'none');
+          document.getElementById('appContent') && (document.getElementById('appContent').style.display = 'block');
+          console.log('✅ Autenticado:', user.email);
+          // Só carrega os dados do Firebase após autenticação confirmada
+          if (window.sincronizarFirebase) await window.sincronizarFirebase();
+        } else {
+          window._fbUser = null;
+          document.getElementById('modalLogin') && (document.getElementById('modalLogin').style.display = 'flex');
+          document.getElementById('appContent') && (document.getElementById('appContent').style.display = 'none');
+        }
+      });
+
+      window.fbLogin = async function(email, senha) {
+        try {
+          await signInWithEmailAndPassword(_auth, email, senha);
+          return true;
+        } catch(e) {
+          console.error('Login erro:', e.code);
+          const msgs = {
+            'auth/invalid-credential': 'E-mail ou senha incorretos.',
+            'auth/user-not-found': 'Usuário não encontrado.',
+            'auth/wrong-password': 'Senha incorreta.',
+            'auth/too-many-requests': 'Muitas tentativas. Tente mais tarde.',
+            'auth/invalid-email': 'E-mail inválido.'
+          };
+          return msgs[e.code] || 'Erro: ' + e.message;
+        }
+      };
+
+      window.fbLogout = async function() {
+        await signOut(_auth);
+      };
+
+      window._fbErro = null;
 
       window.fbSaveList = async function(colecao, lista) {
         try {
@@ -31,20 +73,35 @@
             batch.set(doc(_db, colecao, id), JSON.parse(JSON.stringify(item)));
           });
           await batch.commit();
-        } catch(e) { console.error('fbSaveList', e); }
+          console.log('✅ Firebase: ' + colecao + ' salvo (' + lista.length + ' docs)');
+        } catch(e) {
+          console.error('❌ fbSaveList erro:', e);
+          window._fbErro = e.message;
+          mostrarErroFb(e.message);
+        }
       };
 
       window.fbSaveObject = async function(colecao, id, obj) {
         try {
           await setDoc(doc(_db, colecao, id), { __data: JSON.stringify(obj) });
-        } catch(e) { console.error('fbSaveObject', e); }
+          console.log('✅ Firebase: ' + colecao + '/' + id + ' salvo');
+        } catch(e) {
+          console.error('❌ fbSaveObject erro:', e);
+          window._fbErro = e.message;
+          mostrarErroFb(e.message);
+        }
       };
 
       window.fbLoadCollection = async function(colecao) {
         try {
           const snap = await getDocs(collection(_db, colecao));
+          console.log('✅ Firebase: ' + colecao + ' carregado (' + snap.docs.length + ' docs)');
           return snap.docs.map(d => d.data());
-        } catch(e) { console.error('fbLoadCollection', e); return null; }
+        } catch(e) {
+          console.error('❌ fbLoadCollection erro:', e);
+          window._fbErro = e.message;
+          return null;
+        }
       };
 
       window.fbLoadObject = async function(colecao, id) {
@@ -52,10 +109,14 @@
           const snap = await getDoc(doc(_db, colecao, id));
           if (!snap.exists()) return null;
           return JSON.parse(snap.data().__data);
-        } catch(e) { console.error('fbLoadObject', e); return null; }
+        } catch(e) {
+          console.error('❌ fbLoadObject erro:', e);
+          return null;
+        }
       };
 
       window._fbReady = true;
+      console.log('🔥 Firebase inicializado: mobitex-pscg');
     </script>
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -242,6 +303,28 @@
 </style>
 </head>
 <body>
+<div id="modalLogin" style="position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#2c3e50,#34495e);z-index:99999;display:flex;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:20px;padding:40px 32px;width:90%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,0.4);text-align:center;">
+    <div style="font-size:2.5rem;margin-bottom:8px;">🧾</div>
+    <h2 style="margin:0 0 4px;color:#2c3e50;font-size:1.3rem;">MobiTex PSCG</h2>
+    <p style="color:#999;font-size:0.8rem;margin-bottom:24px;">Sistema Financeiro</p>
+
+    <input type="email" id="loginEmail" placeholder="E-mail" 
+      style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:10px;box-sizing:border-box;">
+    <input type="password" id="loginSenha" placeholder="Senha"
+      style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:6px;box-sizing:border-box;">
+
+    <div id="loginErro" style="color:#e74c3c;font-size:0.8rem;min-height:20px;margin-bottom:10px;"></div>
+
+    <button onclick="fazerLogin()" id="btnLogin"
+      style="width:100%;padding:14px;background:#2ecc71;color:white;border:none;border-radius:10px;font-size:1rem;font-weight:bold;cursor:pointer;">
+      ENTRAR
+    </button>
+  </div>
+</div>
+
+<div id="appContent" style="display:none;">
+
 <button class="btn-export" onclick="document.getElementById('importadorCSV').click()" 
         style="bottom: 240px; right: 32px; background: var(--info);" title="Importar Planilha">
     📥
@@ -262,6 +345,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h2 style="margin:0; font-size: 1.2rem; color: var(--dark);">MobiTex PSCG</h2>
         <button onclick="abrirConfig()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;">⚙️</button>
+        <button onclick="fazerLogout()" style="background:none; border:none; font-size: 1.3rem; cursor:pointer;" title="Sair">🔓</button>
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
@@ -501,12 +585,10 @@
     popularSelectModelos();
     popularDatalistFornecedores();
     atualizarSaldos();
-
-    // Carrega do Firebase em segundo plano (não bloqueia o app)
-    sincronizarFirebase();
+    // NÃO sincroniza aqui — só após login (onAuthStateChanged cuida disso)
 };
 
-async function sincronizarFirebase() {
+window.sincronizarFirebase = async function sincronizarFirebase() {
     // Aguarda o módulo Firebase inicializar (máx 5 segundos)
     let t = 0;
     while (!window.fbLoadCollection && t++ < 50) {
@@ -547,7 +629,7 @@ async function sincronizarFirebase() {
     } catch(e) {
         console.error('Erro ao sincronizar Firebase:', e);
     }
-}
+};
 
 
 
@@ -2103,6 +2185,63 @@ function abrirArquivoEmTelaCheia() {
         </button>
     </div>
 </div>
+
+
+<script>
+function mostrarErroFb(msg) {
+    // Mostra erro Firebase sem travar o app
+    let div = document.getElementById('fbErroBar');
+    if (!div) {
+        div = document.createElement('div');
+        div.id = 'fbErroBar';
+        div.style.cssText = 'position:fixed;bottom:70px;left:0;right:0;background:#e74c3c;color:white;padding:10px 16px;font-size:0.8rem;z-index:8000;display:flex;justify-content:space-between;align-items:center;';
+        document.body.appendChild(div);
+    }
+    div.innerHTML = '⚠️ Erro Firebase: ' + msg + ' <button onclick="this.parentElement.remove()" style="background:none;border:1px solid white;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;">X</button>';
+}
+</script>
+
+</div><!-- /appContent -->
+
+<script>
+async function fazerLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const senha = document.getElementById('loginSenha').value;
+    const erro  = document.getElementById('loginErro');
+    const btn   = document.getElementById('btnLogin');
+
+    if (!email || !senha) { erro.textContent = 'Preencha e-mail e senha.'; return; }
+
+    btn.textContent = 'Entrando...';
+    btn.disabled = true;
+    erro.textContent = '';
+
+    const resultado = await window.fbLogin(email, senha);
+
+    if (resultado === true) {
+        // onAuthStateChanged cuida de esconder o modal e mostrar o app
+        sincronizarFirebase();
+    } else {
+        erro.textContent = resultado;
+        btn.textContent = 'ENTRAR';
+        btn.disabled = false;
+    }
+}
+
+// Enter key no campo senha
+document.addEventListener('DOMContentLoaded', () => {
+    const s = document.getElementById('loginSenha');
+    if (s) s.addEventListener('keydown', e => { if(e.key === 'Enter') fazerLogin(); });
+    const em = document.getElementById('loginEmail');
+    if (em) em.addEventListener('keydown', e => { if(e.key === 'Enter') document.getElementById('loginSenha').focus(); });
+});
+
+function fazerLogout() {
+    if (confirm('Deseja sair do sistema?')) {
+        if (window.fbLogout) window.fbLogout();
+    }
+}
+</script>
 
 </body>
 <datalist id="listaSugestoesFornecedores"></datalist>
