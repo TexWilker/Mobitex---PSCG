@@ -2,6 +2,93 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
+    <!-- Firebase SDKs -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+      import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, writeBatch }
+        from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+      // ── Carrega config salva no localStorage (preenchida pelo usuário) ──────
+      function getFirebaseConfig() {
+        try { return JSON.parse(localStorage.getItem('mbtx_firebase_config') || 'null'); }
+        catch(e) { return null; }
+      }
+
+      let _app, _db;
+
+      function initFirebase() {
+        const cfg = getFirebaseConfig();
+        if (!cfg || !cfg.projectId) return false;
+        try {
+          _app = initializeApp(cfg);
+          _db  = getFirestore(_app);
+          return true;
+        } catch(e) { console.error('Firebase init error', e); return false; }
+      }
+
+      // ── Expõe funções globais para o restante do código ──────────────────────
+      window._fbReady = initFirebase();
+
+      window.fbSaveDoc = async function(colecao, id, dados) {
+        if (!_db) return false;
+        try {
+          // Remove campos undefined que o Firestore rejeita
+          const limpo = JSON.parse(JSON.stringify(dados));
+          await setDoc(doc(_db, colecao, String(id)), limpo);
+          return true;
+        } catch(e) { console.error('fbSaveDoc', e); return false; }
+      };
+
+      window.fbDeleteDoc = async function(colecao, id) {
+        if (!_db) return false;
+        try { await deleteDoc(doc(_db, colecao, String(id))); return true; }
+        catch(e) { console.error('fbDeleteDoc', e); return false; }
+      };
+
+      window.fbLoadCollection = async function(colecao) {
+        if (!_db) return null;
+        try {
+          const snap = await getDocs(collection(_db, colecao));
+          return snap.docs.map(d => d.data());
+        } catch(e) { console.error('fbLoadCollection', e); return null; }
+      };
+
+      window.fbSaveList = async function(colecao, lista) {
+        if (!_db) return false;
+        try {
+          const batch = writeBatch(_db);
+          // Apaga todos os docs antigos desta coleção primeiro
+          const snap = await getDocs(collection(_db, colecao));
+          snap.docs.forEach(d => batch.delete(d.ref));
+          // Adiciona os novos
+          lista.forEach((item, i) => {
+            const id = (typeof item === 'object' && item.id) ? String(item.id) : String(i);
+            batch.set(doc(_db, colecao, id), JSON.parse(JSON.stringify(item)));
+          });
+          await batch.commit();
+          return true;
+        } catch(e) { console.error('fbSaveList', e); return false; }
+      };
+
+      // Salva objeto simples (config, modelosRateio) como doc único
+      window.fbSaveObject = async function(colecao, id, obj) {
+        if (!_db) return false;
+        try {
+          await setDoc(doc(_db, colecao, id), { __data: JSON.stringify(obj) });
+          return true;
+        } catch(e) { console.error('fbSaveObject', e); return false; }
+      };
+
+      window.fbLoadObject = async function(colecao, id) {
+        if (!_db) return null;
+        try {
+          const snap = await getDoc(doc(_db, colecao, id));
+          if (!snap.exists()) return null;
+          return JSON.parse(snap.data().__data);
+        } catch(e) { console.error('fbLoadObject', e); return null; }
+      };
+    </script>
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MobiTex PSCG</title>
     <style>
@@ -206,6 +293,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h2 style="margin:0; font-size: 1.2rem; color: var(--dark);">MobiTex PSCG</h2>
         <button onclick="abrirConfig()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;">⚙️</button>
+        <button onclick="abrirModalFirebaseConfig()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;" title="Configurar Firebase">🔥</button>
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
@@ -395,7 +483,7 @@
 </div>
             </div>
             <div style="display: flex; gap: 10px; margin-top: 20px;">
-                <button onclick="salvarLançamento()" style="flex: 2; background: var(--dark); color: white; border: none; font-weight: bold;">SALVAR</button>
+                <button onclick="salvarLancamento()" style="flex: 2; background: var(--dark); color: white; border: none; font-weight: bold;">SALVAR</button>
                 <button id="btnExcluir" onclick="excluirLançamento()" style="flex: 1; background: var(--danger); color: white; border: none; display: none;">EXCLUIR</button>
                 <button onclick="fecharModal('modalLanc')" style="flex: 1; background: #eee; border: none;">VOLTAR</button>
             </div>
@@ -424,6 +512,7 @@
 
    <script>
     // 1. INICIALIZAÇÃO E PERSISTÊNCIA
+    let anexoBase64 = "";
     let indexEdicaoConfig = null; // null significa que estamos criando um novo
     let fornecedoresCadastrados = JSON.parse(localStorage.getItem('mbtx_v82_fornecedores')) || [];
     let db = JSON.parse(localStorage.getItem('mbtx_v82_db')) || [];
@@ -431,119 +520,75 @@
     let contasContabeis = JSON.parse(localStorage.getItem('mbtx_v82_cc')) || ["Suprimentos", "Logística", "Pessoal", "Infra"];
     let abaAtivaConfig = 'bancos';
     let modelosRateio = JSON.parse(localStorage.getItem('mbtx_modelos_rateio')) || {};
-    let anexoBase64 = "";
     let lancamentoTemporarioParaSalvar = null; // Variável global para guardar os dados temporariamente
-    let lancamentoPendenteEdicao = null; 
-   window.onload = () => {
-    // Configura os meses iniciais
+
+   window.onload = async () => {
+    // Mostra loading
+    document.body.insertAdjacentHTML('afterbegin', '<div id="loadingFb" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;font-size:1.1rem;gap:15px;"><div>🔥 Conectando ao Firebase...</div><div id="loadingMsg" style="font-size:0.8rem;opacity:0.7;"></div></div>');
+
     const mesAtual = new Date().toISOString().substring(0, 7);
     const fMes = document.getElementById('filtroMes');
     const fMesP = document.getElementById('filtroMesPedidos');
-    
     if(fMes) fMes.value = mesAtual;
     if(fMesP) fMesP.value = mesAtual;
 
-    // CARREGA AS CONTAS E MODELOS (Essencial estar aqui)
-    popularSelects(); 
-    popularSelectModelos(); 
-    popularDatalistFornecedores()
+    // Verifica se Firebase está configurado
+    const fbConfig = localStorage.getItem('mbtx_firebase_config');
+    if (!fbConfig || !JSON.parse(fbConfig).projectId) {
+        document.getElementById('loadingFb').remove();
+        abrirModalFirebaseConfig();
+        return;
+    }
 
-    // Inicializa a tela
+    // Aguarda módulo Firebase carregar (type="module" é async)
+    let tentativas = 0;
+    while (!window.fbLoadCollection && tentativas < 50) {
+        await new Promise(r => setTimeout(r, 100));
+        tentativas++;
+    }
+
+    if (!window.fbLoadCollection) {
+        document.getElementById('loadingFb').remove();
+        alert("Erro ao carregar Firebase. Verifique a configuração.");
+        abrirModalFirebaseConfig();
+        return;
+    }
+
+    try {
+        document.getElementById('loadingMsg').textContent = 'Carregando lançamentos...';
+        const fbDb = await fbLoadCollection('lancamentos');
+        if (fbDb !== null) {
+            db = fbDb;
+            localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+        }
+
+        document.getElementById('loadingMsg').textContent = 'Carregando configurações...';
+        const fbBancos = await fbLoadObject('config', 'bancos');
+        if (fbBancos) { contasBancos = fbBancos; localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos); }
+
+        const fbCC = await fbLoadObject('config', 'contas');
+        if (fbCC) { contasContabeis = fbCC; localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis); }
+
+        const fbFornecedores = await fbLoadObject('config', 'fornecedores');
+        if (fbFornecedores) { fornecedoresCadastrados = fbFornecedores; localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados); }
+
+        const fbRateio = await fbLoadObject('config', 'modelosRateio');
+        if (fbRateio) { modelosRateio = fbRateio; localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio); }
+
+    } catch(e) {
+        console.error('Erro ao carregar do Firebase:', e);
+        alert('Erro ao conectar ao Firebase. Usando dados locais.');
+    }
+
+    document.getElementById('loadingFb').remove();
+    popularSelects();
+    popularSelectModelos();
+    popularDatalistFornecedores();
     atualizarSaldos();
 };
 
 
-function prepararSalvar() {
-    // 1. Captura o ID do campo oculto correto (editId)
-    const idAtual = document.getElementById('editId').value;
 
-    const dadosEditados = {
-        id: idAtual,
-        doc: document.getElementById('numDoc').value,
-        fornecedor: document.getElementById('fornecedor').value,
-        descricao: document.getElementById('descricao').value,
-        valor: parseFloat(document.getElementById('valorTotal').value),
-        cc: document.getElementById('selCC').value,
-        status: document.getElementById('status').value,
-        data: document.getElementById('data').value
-        // Não adicione o campo 'parcela' aqui, ele será preservado no próximo passo
-    };
-
-    const itemOriginal = db.find(t => t.id == idAtual); 
-
-    if (itemOriginal && itemOriginal.idGrupo) {
-        lancamentoTemporarioParaSalvar = dadosEditados;
-        document.getElementById('modalConfirmarEdicao').style.display = 'flex';
-    } else {
-        executarUpdate(dadosEditados, 'unico');
-    }
-}function finalizarAcao() {
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-    fecharModal('modalLanc');
-    atualizarSaldos();
-    alert("Operação concluída!");
-}
-function confirmarSalvarEdicao(modo) {
-    const idParaEditar = document.getElementById('editId').value;
-    const itemReferencia = db.find(t => t.id == idParaEditar);
-    
-    // Captura os dados ATUAIS do modal antes de replicar
-    const novosDados = {
-        descricao: document.getElementById('descricao').value,
-        fornecedor: document.getElementById('fornecedor').value,
-        idFornecedor: document.getElementById('idFornecedor').value,
-        codServico: document.getElementById('codServico').value, // <-- ESTAVA FALTANDO AQUI
-        cc: document.getElementById('selCC').value,
-        tipo: document.getElementById('tipo').value,
-        status: document.getElementById('status').value,
-        tipoImposto: document.getElementById('tipoImposto').value,
-        nf: document.getElementById('numNF').value
-    };
-
-    if (modo === 'unico') {
-        db = db.map(t => t.id == idParaEditar ? { ...t, ...novosDados } : t);
-    } else if (modo === 'futuros') {
-        db = db.map(t => {
-            // Se for do mesmo grupo e a data for igual ou maior que o que estamos editando
-            if (t.idGrupo === itemReferencia.idGrupo && t.data >= itemReferencia.data) {
-                return { 
-                    ...t, 
-                    ...novosDados, 
-                    id: t.id, 
-                    data: t.data, 
-                    parcela: t.parcela, 
-                    valor: t.valor,
-                    // Recalcula o rateio mantendo as proporções originais
-                    rateio: t.rateio.map(r => ({ ...r, v: (t.valor * r.p) / 100 }))
-                };
-            }
-            return t;
-        });
-    }
-
-    fecharModal('modalConfirmarEdicao');
-    finalizarEFechar(); // Sua função que salva no localStorage e limpa o modal
-}
-function executarUpdate(dadosNovos, modo) {
-    if (modo === 'unico') {
-        // Localiza o item pelo ID e substitui os dados
-        db = db.map(item => item.id == dadosNovos.id ? { ...item, ...dadosNovos } : item);
-    } else if (modo === 'futuros') {
-        // Lógica Mobills: localiza todos do mesmo grupo com data igual ou maior
-        const original = db.find(t => t.id == dadosNovos.id);
-        db = db.map(item => {
-            if (item.idGrupo === original.idGrupo && item.data >= original.data) {
-                return { ...item, ...dadosNovos, id: item.id, data: item.data };
-            }
-            return item;
-        });
-    }
-
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-    fecharModal('modalLanc');
-    renderizarTransacoes(); // Recarrega a tabela
-
-}
 function vincularIdFornecedor(nomeDigitado) {
     // Procura se o nome digitado existe na lista de fornecedores cadastrados
     const fornecedorEncontrado = fornecedoresCadastrados.find(f => f.nome === nomeDigitado);
@@ -677,7 +722,7 @@ function processarPlanilha(event) {
 
             if (contagem > 0) {
                 db.push(...novasEntradas);
-                localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+                localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
                 alert("Sucesso! " + contagem + " lançamentos importados com NF e Emissão.");
                 location.reload(); // Recarrega a página para garantir que tudo apareça
             } else {
@@ -806,7 +851,7 @@ function salvarModeloRateio() {
     }));
 
     modelosRateio[nome] = dados;
-    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio));
+    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
     renderizarListaModelos();
     popularSelectModelos();
     alert("Modelo salvo!");
@@ -972,7 +1017,7 @@ function salvarModeloRateio() {
     }
 
     modelosRateio[nome] = dados;
-    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio));
+    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
     
     // Reseta o formulário após salvar
     document.getElementById('nomeModeloRateio').value = '';
@@ -1005,7 +1050,7 @@ function aplicarModeloNoLancamento() {
 function excluirModelo(nome) {
     if(confirm(`Excluir modelo ${nome}?`)) {
         delete modelosRateio[nome];
-        localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio));
+        localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
         renderizarListaModelos();
         popularSelectModelos();
     }
@@ -1300,11 +1345,16 @@ function verDetalhes(tipo, valorFiltro) {
         if (divP) divP.style.display = 'none';
         if (document.getElementById('containerRateio')) document.getElementById('containerRateio').innerHTML = '';
 
-        // 5. TRATAMENTO DO ANEXO (Correção do erro da imagem)
-        window.anexoBase64 = ""; // Usa window. para garantir que a variável global seja acessada
-        
+        // 5. TRATAMENTO DO ANEXO — limpa tudo completamente
+        window.anexoBase64 = "";
+        const inputAnexo = document.getElementById('anexo');
+        if (inputAnexo) inputAnexo.value = "";
         const btnVer = document.getElementById('btnVerAnexo');
+        const btnRem = document.getElementById('btnRemoverAnexo');
         if (btnVer) btnVer.style.display = 'none';
+        if (btnRem) btnRem.style.display = 'none';
+        const nfAnexadaEl = document.getElementById('nfAnexada');
+        if (nfAnexadaEl) nfAnexadaEl.value = 'nao';
 
         if (document.getElementById('btnExcluir')) {
             document.getElementById('btnExcluir').style.display = 'none';
@@ -1319,189 +1369,220 @@ function verDetalhes(tipo, valorFiltro) {
         document.getElementById('modalLanc').style.display = 'flex';
     }
 }
+ // Variável global para guardar dados da edição pendente
+    let _dadosEdicaoPendente = null;
 
+    function salvarLancamento() {
+    const id = document.getElementById('editId').value;
 
-function salvarLançamento() {
-    const editIdField = document.getElementById('editId');
-    const idEdicao = editIdField ? editIdField.value : "";
-    
-    const valorTotalDigitado = parseFloat(document.getElementById('valorTotal').value) || 0;
-    const tipoRec = document.getElementById('recorrencia').value;
-    const dataBaseStr = document.getElementById('data').value;
-    const numDocDigitado = document.getElementById('numDoc').value;
-
-    const selMod = document.getElementById('selectModeloPronto');
-    const nomeModelo = selMod.value ? selMod.options[selMod.selectedIndex].text : "";
-
-    const linhasRateio = document.querySelectorAll('#containerRateio .rateio-linha');
-    let dadosRateioBase = Array.from(linhasRateio).map(l => ({
-        conta: l.querySelector('.r-c').value,
-        p: parseFloat(l.querySelector('.r-p').value) || 0
-    }));
-
-    // --- MODO EDIÇÃO ---
-    if (idEdicao) {
-        const itemAntigo = db.find(l => l.id == idEdicao);
-        const dadosNovos = {
-            doc: numDocDigitado,
-            descricao: document.getElementById('descricao').value,
-            fornecedor: document.getElementById('fornecedor').value,
-            idFornecedor: document.getElementById('idFornecedor').value,
-            codServico: document.getElementById('codServico').value,
-            dataEmissao: document.getElementById('dataEmissao').value,
-            nf: document.getElementById('numNF').value,
-            tipo: document.getElementById('tipo').value,
-            cc: document.getElementById('selCC').value,
-            status: document.getElementById('status').value, // Status atual do modal
-            tipoImposto: document.getElementById('tipoImposto').value,
-            valorTotalPedido: valorTotalDigitado,
-            tipoRateio: nomeModelo,
-            rateioBase: dadosRateioBase
-        };
-
-        if (itemAntigo && itemAntigo.idGrupo) {
-            lancamentoTemporarioParaSalvar = { id: idEdicao, novosDados: dadosNovos };
-            document.getElementById('modalConfirmarEdicao').style.display = 'flex';
-        } else {
-            db = db.map(t => t.id == idEdicao ? { ...t, ...dadosNovos, valor: t.valor } : t);
-            finalizarAcaoTotal();
-        }
+    // ── NOVO LANÇAMENTO (editId vazio) ──────────────────────────────
+    if (!id) {
+        salvarNovoLancamento();
         return;
     }
 
-    // --- MODO NOVO LANÇAMENTO ---
-    let qtdParaGerar = (tipoRec === 'parcelado') ? (parseInt(document.getElementById('qtdParcelas').value) || 1) : (tipoRec === 'fixo' ? 12 : 1);
-    const idGrupoNovo = Date.now();
+    // ── EDIÇÃO DE LANÇAMENTO EXISTENTE ──────────────────────────────
+    const itemOriginal = db.find(t => t.id == id);
+    if (!itemOriginal) return alert("Erro: Lançamento não encontrado.");
 
-    for (let i = 0; i < qtdParaGerar; i++) {
-        let dataParcela = new Date(dataBaseStr + 'T00:00:00');
-        dataParcela.setMonth(dataParcela.getMonth() + i);
-        let valorDaVez = (tipoRec === 'parcelado') ? (valorTotalDigitado / qtdParaGerar) : valorTotalDigitado;
+    const recorrencia  = document.getElementById('recorrencia').value;
+    const qtdParcelas  = parseInt(document.getElementById('qtdParcelas').value) || 1;
+    const valorTotal   = parseFloat(document.getElementById('valorTotal').value) || itemOriginal.valor;
 
-        // Lógica do Pedido: Primeiro fixa o digitado, demais fixos texto especial
-        let docFinal = numDocDigitado;
-        if (tipoRec === 'fixo' && i > 0) {
-            docFinal = "Pagamento Fixo: Gera Novo Nº Pedido";
+    // ── CONVERSÃO: único → parcelado/fixo ──────────────────────────
+    // Se o lançamento era único (sem idGrupo) e agora escolheu parcelado com mais de 1x
+    const virouParcelado = !itemOriginal.idGrupo && (
+        (recorrencia === 'parcelado' && qtdParcelas > 1) ||
+        recorrencia === 'fixo'
+    );
+
+    if (virouParcelado) {
+        if (!confirm(`Isso vai converter este lançamento em ${recorrencia === 'fixo' ? 12 : qtdParcelas} parcelas. Confirma?`)) return;
+
+        const qtd = recorrencia === 'fixo' ? 12 : qtdParcelas;
+        const dataInicial = document.getElementById('data').value;
+        const idGrupoNovo = Date.now().toString();
+
+        // Coleta rateio atual do form
+        const linhasRateio = document.querySelectorAll('#containerRateio .rateio-linha');
+        const rateio = Array.from(linhasRateio).map(l => ({
+            conta: l.querySelector('.r-c') ? l.querySelector('.r-c').value : '',
+            p: parseFloat(l.querySelector('.r-p') ? l.querySelector('.r-p').value : 0) || 0,
+            v: parseFloat(l.querySelector('.r-v') ? l.querySelector('.r-v').value : 0) || 0
+        })).filter(r => r.conta);
+
+        // Remove o lançamento único original
+        db = db.filter(t => t.id != id);
+
+        // Cria as parcelas no lugar
+        for (let i = 0; i < qtd; i++) {
+            const dataParcela = new Date(dataInicial + 'T12:00:00');
+            dataParcela.setMonth(dataParcela.getMonth() + i);
+
+            db.push({
+                id: Date.now() + Math.random(),
+                idGrupo: idGrupoNovo,
+                parcela: `${i + 1}/${qtd}`,
+                doc: _resolverDoc(document.getElementById('numDoc').value, recorrencia, i),
+                fornecedor: document.getElementById('fornecedor').value,
+                idFornecedor: document.getElementById('idFornecedor').value,
+                descricao: document.getElementById('descricao').value,
+                valor: recorrencia === 'parcelado' ? (valorTotal / qtd) : valorTotal,
+                valorTotalPedido: valorTotal,
+                data: dataParcela.toISOString().split('T')[0],
+                status: document.getElementById('status').value || 'pendente',
+                nf: document.getElementById('numNF').value,
+                numNF: document.getElementById('numNF').value,
+                dataEmissao: document.getElementById('dataEmissao').value,
+                tipoImposto: document.getElementById('tipoImposto').value,
+                codServico: document.getElementById('codServico').value,
+                cc: document.getElementById('selCC').value,
+                tipo: document.getElementById('tipo').value,
+                nfAnexada: document.getElementById('nfAnexada').value,
+                rateio: rateio,
+                anexo: anexoBase64
+            });
         }
 
-        db.push({
-            id: Date.now() + i + Math.random(),
-            idGrupo: (tipoRec !== 'unico') ? idGrupoNovo : null,
-            doc: docFinal,
-            fornecedor: document.getElementById('fornecedor').value,
-            idFornecedor: document.getElementById('idFornecedor').value,
-            descricao: document.getElementById('descricao').value,
-            codServico: document.getElementById('codServico').value,
-            dataEmissao: document.getElementById('dataEmissao').value,
-            nf: document.getElementById('numNF').value,
-            tipo: document.getElementById('tipo').value,
-            valor: valorDaVez,
-            valorTotalPedido: valorTotalDigitado,
-            data: dataParcela.toISOString().substring(0, 10),
-            cc: document.getElementById('selCC').value,
-            status: document.getElementById('status').value,
-            tipoImposto: document.getElementById('tipoImposto').value,
-            parcela: (qtdParaGerar > 1) ? `${(i + 1).toString().padStart(2, '0')}/${qtdParaGerar.toString().padStart(2, '0')}` : "",
-            rateio: dadosRateioBase.map(r => ({ ...r, v: (valorDaVez * r.p) / 100 })),
-            tipoRateio: nomeModelo,
-            anexo: anexoBase64 || ""
-        });
+        _finalizarSalvarEdicao();
+        return;
     }
-    finalizarAcaoTotal();
-}// AJUSTE NA REPLICAÇÃO PARA O CÓDIGO DE SERVIÇO
+
+    // Coleta dados editados normais
+    const _linhasRateioEd = document.querySelectorAll('#containerRateio .rateio-linha');
+    const _rateioEd = Array.from(_linhasRateioEd).map(l => ({
+        conta: l.querySelector('.r-c') ? l.querySelector('.r-c').value : '',
+        p: parseFloat(l.querySelector('.r-p') ? l.querySelector('.r-p').value : 0) || 0,
+        v: parseFloat(l.querySelector('.r-v') ? l.querySelector('.r-v').value : 0) || 0
+    })).filter(r => r.conta);
+    const _tipoRateioEd = document.getElementById('selectModeloPronto') ? document.getElementById('selectModeloPronto').value : '';
+
+    const dadosEditados = {
+        doc: _resolverDoc(document.getElementById('numDoc').value, 'unico', 0),
+        idFornecedor: document.getElementById('idFornecedor').value,
+        fornecedor: document.getElementById('fornecedor').value,
+        descricao: document.getElementById('descricao').value,
+        data: document.getElementById('data').value,
+        valor: valorTotal,
+        numNF: document.getElementById('numNF').value,
+        nf: document.getElementById('numNF').value,
+        tipoImposto: document.getElementById('tipoImposto').value,
+        codServico: document.getElementById('codServico').value,
+        cc: document.getElementById('selCC').value,
+        status: document.getElementById('status').value,
+        tipo: document.getElementById('tipo').value,
+        nfAnexada: document.getElementById('nfAnexada').value,
+        anexo: anexoBase64,
+        rateio: _rateioEd,
+        tipoRateio: _tipoRateioEd
+    };
+
+    // Se já é parcelado (tem idGrupo), pergunta como replicar
+    if (itemOriginal.idGrupo) {
+        _dadosEdicaoPendente = { id, dadosEditados, itemOriginal };
+        document.getElementById('modalConfirmarEdicao').style.display = 'flex';
+        return;
+    }
+
+    // Lançamento único simples: salva direto
+    const index = db.findIndex(t => t.id == id);
+    if (index !== -1) {
+        db[index] = { ...db[index], ...dadosEditados };
+    }
+
+    _finalizarSalvarEdicao();
+}
+
 function confirmarSalvarEdicao(modo) {
-    const { id, novosDados } = lancamentoTemporarioParaSalvar;
-    const original = db.find(t => t.id == id);
+    if (!_dadosEdicaoPendente) return;
+
+    const { id, dadosEditados, itemOriginal } = _dadosEdicaoPendente;
 
     if (modo === 'unico') {
-        db = db.map(t => t.id == id ? { ...t, ...novosDados, valor: t.valor } : t);
-    } else {
-        // MODO REPLICAR (ESTILO MOBILLS)
-        db = db.map(t => {
-            if (t.idGrupo === original.idGrupo && t.data >= original.data) {
-                
-                // Preparar dados para replicação
-                const dadosParaReplicar = { ...novosDados };
-                
-                // --- REGRA DE PROTEÇÃO ---
-                // Sempre protege o STATUS (independente de ser fixo ou parcelado)
-                delete dadosParaReplicar.status;
-
-                // Se o tipo original da série for FIXO, protege também o Nº de Pedido
-                // Verificamos se no doc original existe o texto de pagamento fixo
-                const ehFixo = t.doc.includes("Pagamento Fixo") || original.recorrencia === 'fixo';
-                if (ehFixo) {
-                    delete dadosParaReplicar.doc;
-                }
-
-                return { 
-                    ...t, 
-                    ...dadosParaReplicar, 
-                    id: t.id, 
-                    data: t.data, 
-                    parcela: t.parcela, 
-                    valor: t.valor,
-                    // Garante que mantém o que já estava se for fixo, ou atualiza se for parcelado
-                    doc: ehFixo ? t.doc : novosDados.doc, 
-                    status: t.status, 
-                    rateio: novosDados.rateioBase.map(r => ({ ...r, v: (t.valor * r.p) / 100 }))
+        // Altera apenas este registro
+        const index = db.findIndex(t => t.id == id);
+        if (index !== -1) {
+            db[index] = { ...db[index], ...dadosEditados };
+        }
+    } 
+    else if (modo === 'futuros') {
+        // Altera este e todos os futuros do mesmo grupo
+        db = db.map(item => {
+            if (item.idGrupo === itemOriginal.idGrupo && item.data >= itemOriginal.data) {
+                return {
+                    ...item,
+                    ...dadosEditados,
+                    id: item.id,
+                    idGrupo: item.idGrupo,
+                    parcela: item.parcela,
+                    data: item.data,       // mantém a data de vencimento de cada parcela
+                    valor: item.valor      // mantém o valor de cada parcela
                 };
             }
-            return t;
+            return item;
+        });
+    } 
+    else if (modo === 'todos') {
+        // Altera todas as parcelas do grupo
+        db = db.map(item => {
+            if (item.idGrupo === itemOriginal.idGrupo) {
+                return {
+                    ...item,
+                    ...dadosEditados,
+                    id: item.id,
+                    idGrupo: item.idGrupo,
+                    parcela: item.parcela,
+                    data: item.data,       // mantém a data de vencimento de cada parcela
+                    valor: item.valor      // mantém o valor de cada parcela
+                };
+            }
+            return item;
         });
     }
+
     fecharModal('modalConfirmarEdicao');
-    finalizarAcaoTotal();
+    _dadosEdicaoPendente = null;
+    _finalizarSalvarEdicao();
 }
-function finalizarAcaoTotal() {
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+
+function _finalizarSalvarEdicao() {
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+    if (typeof atualizarSaldos === "function") atualizarSaldos();
     fecharModal('modalLanc');
-    if (typeof atualizarSaldos === 'function') atualizarSaldos();
-    if (typeof renderizarTransacoes === 'function') renderizarTransacoes();
+    alert("Alterações salvas com sucesso!");
+}
+function abrirEditar(id) {
+    const item = db.find(t => t.id == id);
+    if (!item) return;
+
+    // Preenche os campos básicos
+    document.getElementById('editId').value = item.id;
+    document.getElementById('numDoc').value = item.doc || '';
+    document.getElementById('fornecedor').value = item.fornecedor || '';
+    document.getElementById('idFornecedor').value = item.idFornecedor || '';
+    document.getElementById('descricao').value = item.descricao || '';
+    document.getElementById('valorTotal').value = item.valor || 0;
+    document.getElementById('data').value = item.data || '';
+    document.getElementById('numNF').value = item.numNF || '';
+    document.getElementById('tipoImposto').value = item.tipoImposto || '';
+    document.getElementById('codServico').value = item.codServico || '';
+    document.getElementById('selCC').value = item.cc || '';
+    document.getElementById('status').value = item.status || 'Pendente';
+    document.getElementById('tipo').value = item.tipo || 'Despesa';
+
+    // IMPORTANTE: Carrega o anexo do banco para a memória global
+    anexoBase64 = item.anexo || ""; 
     
-    // Limpeza fundamental para não dar erro no próximo clique
-    document.getElementById('editId').value = "";
-    anexoBase64 = "";
-    lancamentoTemporarioParaSalvar = null;
-}
-function executarUpdateFinal(id, dados, modo) {
-    const itemReferencia = db.find(l => l.id == id);
+    // Atualiza a visão dos botões de anexo
+    if (anexoBase64) {
+        document.getElementById('btnVerAnexo').style.display = 'inline-block';
+        document.getElementById('btnRemoverAnexo').style.display = 'inline-block';
+    } else {
+        document.getElementById('btnVerAnexo').style.display = 'none';
+        document.getElementById('btnRemoverAnexo').style.display = 'none';
+    }
 
-    db = db.map(item => {
-        // MODO ÚNICO: Altera só o ID que abrimos
-        if (modo === 'unico' && item.id == id) {
-            return { ...item, ...dados, rateio: recalcularRateio(item.valor, dados.rateioBase) };
-        }
-        
-        // MODO FUTUROS: Altera este e todos do mesmo grupo com data igual ou maior
-        if (modo === 'futuros' && item.idGrupo === itemReferencia.idGrupo && item.data >= itemReferencia.data) {
-            return { 
-                ...item, 
-                ...dados, 
-                id: item.id,     // Não muda o ID
-                data: item.data, // Não muda a data de vencimento
-                parcela: item.parcela, // Não muda o número da parcela
-                valor: item.valor,     // Mantém o valor individual (importante para fixos)
-                rateio: recalcularRateio(item.valor, dados.rateioBase)
-            };
-        }
-        return item;
-    });
-
-    // Salva e atualiza
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-    fecharModal('modalLanc');
-    atualizarSaldos();
-    lancamentoPendenteEdicao = null;
-    document.getElementById('editId').value = "";
-}
-
-// Função auxiliar para ajustar os valores de rateio baseados na porcentagem
-function recalcularRateio(valorItem, rateioBase) {
-    return rateioBase.map(r => ({
-        ...r,
-        v: (valorItem * r.p) / 100
-    }));
+    document.getElementById('modalLanc').style.display = 'flex';
 }
    function addLinhaRateio(conta = "", perc = 0) {
     const container = document.getElementById('containerRateio');
@@ -1669,7 +1750,7 @@ function executarExclusao(modo) {
 }
 
 function finalizarExclusao() {
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
     fecharModal('modalConfirmarExclusao');
     fecharModal('modalLanc');
     atualizarSaldos();
@@ -1721,9 +1802,8 @@ function mudarAbaConfig(aba) {
 
 function prepararEdicaoConfig(index) {
     indexEdicaoConfig = index;
-    const btnAcao = document.querySelector('#areaInputConfig button');
-    btnAcao.innerText = "OK"; // Muda o botão de + para OK
-    btnAcao.style.background = "orange";
+    const btn = document.querySelector('#areaInputConfig button');
+    if (btn) { btn.innerText = '✔ Salvar'; btn.style.background = 'orange'; }
 
     if (abaAtivaConfig === 'bancos') {
         document.getElementById('novoItemNome').value = contasBancos[index];
@@ -1732,40 +1812,77 @@ function prepararEdicaoConfig(index) {
     } else {
         const f = fornecedoresCadastrados[index];
         document.getElementById('novoItemNome').value = f.nome;
-        document.getElementById('novoItemId').value = f.idFornecedor;
+        const elId = document.getElementById('novoItemId');
+        if (elId) elId.value = f.idFornecedor;
     }
     document.getElementById('novoItemNome').focus();
 }
 
-function salvarEdicaoConfig(index) {
-    const novoNome = document.getElementById(`input-edit-${index}`).value.trim();
-    if (!novoNome) return alert("O nome não pode estar vazio!");
 
-    if (abaAtivaConfig === 'bancos') {
-        const nomeAntigo = contasBancos[index];
-        contasBancos[index] = novoNome;
-        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
-        
-        // Atualiza o banco de dados para manter a integridade nos lançamentos antigos (Opcional)
-        db.forEach(l => {
-            if(l.rateio) {
-                l.rateio.forEach(r => { if(r.conta === nomeAntigo) r.conta = novoNome; });
-            }
-        });
+function salvarNovoItem() {
+    const nome = document.getElementById('novoItemNome').value.trim();
+    if (!nome) return alert("Informe o nome.");
+
+    if (indexEdicaoConfig !== null) {
+        // ── MODO EDIÇÃO ────────────────────────────────────────────────
+        if (abaAtivaConfig === 'bancos') {
+            const nomeAntigo = contasBancos[indexEdicaoConfig];
+            contasBancos[indexEdicaoConfig] = nome;
+            db.forEach(l => {
+                if (l.rateio) l.rateio.forEach(r => { if (r.conta === nomeAntigo) r.conta = nome; });
+            });
+            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
+            if (window.fbSaveObject) fbSaveObject('config', 'bancos', contasBancos);
+            localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+            if (window.fbSaveList) fbSaveList('lancamentos', db);
+        } else if (abaAtivaConfig === 'contas') {
+            const nomeAntigo = contasContabeis[indexEdicaoConfig];
+            contasContabeis[indexEdicaoConfig] = nome;
+            db.forEach(l => { if (l.cc === nomeAntigo) l.cc = nome; });
+            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
+            if (window.fbSaveObject) fbSaveObject('config', 'contas', contasContabeis);
+            localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+            if (window.fbSaveList) fbSaveList('lancamentos', db);
+        } else {
+            const id = document.getElementById('novoItemId').value.trim();
+            fornecedoresCadastrados[indexEdicaoConfig] = { nome, idFornecedor: id };
+            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
+            if (window.fbSaveObject) fbSaveObject('config', 'fornecedores', fornecedoresCadastrados);
+            popularDatalistFornecedores();
+        }
+        indexEdicaoConfig = null;
     } else {
-        const nomeAntigo = contasContabeis[index];
-        contasContabeis[index] = novoNome;
-        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
-        
-        // Atualiza a conta contábil nos lançamentos
-        db.forEach(l => { if(l.cc === nomeAntigo) l.cc = novoNome; });
+        // ── MODO CRIAÇÃO ───────────────────────────────────────────────
+        if (abaAtivaConfig === 'bancos') {
+            contasBancos.push(nome);
+            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
+            if (window.fbSaveObject) fbSaveObject('config', 'bancos', contasBancos);
+        } else if (abaAtivaConfig === 'contas') {
+            contasContabeis.push(nome);
+            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
+            if (window.fbSaveObject) fbSaveObject('config', 'contas', contasContabeis);
+        } else {
+            const id = document.getElementById('novoItemId').value.trim();
+            if (!id) return alert("Informe o ID do fornecedor.");
+            if (fornecedoresCadastrados.find(f => f.idFornecedor === id)) return alert("ID já cadastrado!");
+            fornecedoresCadastrados.push({ nome, idFornecedor: id });
+            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
+            if (window.fbSaveObject) fbSaveObject('config', 'fornecedores', fornecedoresCadastrados);
+            popularDatalistFornecedores();
+        }
     }
 
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+    // Limpa o campo e reseta botão
+    document.getElementById('novoItemNome').value = '';
+    if (document.getElementById('novoItemId')) document.getElementById('novoItemId').value = '';
+    const btn = document.querySelector('#areaInputConfig button');
+    if (btn) { btn.innerText = '+'; btn.style.background = 'var(--primary)'; }
+
     renderizarListaConfig();
     popularSelects();
     atualizarSaldos();
 }
+
 function renderizarListaConfig() {
     let lista = [];
     if (abaAtivaConfig === 'bancos') lista = contasBancos;
@@ -1791,42 +1908,91 @@ function renderizarListaConfig() {
         </div>`;
     }).join('');
 }
- function salvarNovoItem() {
-    const nome = document.getElementById('novoItemNome').value.trim();
-    const idF = document.getElementById('novoItemId').value.trim();
+ // Retorna o doc correto aplicando as duas regras:
+// Regra 1: fixo, parcelas 2 em diante -> "Pagamento Fixo: Gerar novo No de Pedido"
+// Regra 2: doc vazio -> "Criar Pedido"
+function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
+    if (recorrencia === 'fixo' && indiceParcela > 0) {
+        return 'Pagamento Fixo: Gerar novo Nº de Pedido';
+    }
+    if (!docDigitado || docDigitado.trim() === '') {
+        return 'Criar Pedido';
+    }
+    return docDigitado.trim();
+}
 
-    if (!nome) return;
+ function salvarNovoLancamento() {
+    const fornecedor = document.getElementById('fornecedor').value;
+    if (!fornecedor) return alert("Informe o fornecedor.");
 
-    if (abaAtivaConfig === 'bancos') {
-        if (indexEdicaoConfig !== null) {
-            contasBancos[indexEdicaoConfig] = nome;
-        } else {
-            contasBancos.push(nome);
-        }
-        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
-    } 
-    else if (abaAtivaConfig === 'contas') {
-        if (indexEdicaoConfig !== null) {
-            contasContabeis[indexEdicaoConfig] = nome;
-        } else {
-            contasContabeis.push(nome);
-        }
-        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
-    } 
-    else if (abaAtivaConfig === 'fornecedores') {
-        const novoF = { nome: nome, idFornecedor: idF };
-        if (indexEdicaoConfig !== null) {
-            fornecedoresCadastrados[indexEdicaoConfig] = novoF;
-        } else {
-            fornecedoresCadastrados.push(novoF);
-        }
-        localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
-        popularDatalistFornecedores();
+    const valorTotal = parseFloat(document.getElementById('valorTotal').value);
+    if (!valorTotal || isNaN(valorTotal)) return alert("Informe o valor.");
+
+    const recorrencia = document.getElementById('recorrencia').value;
+    const dataInicial = document.getElementById('data').value;
+    if (!dataInicial) return alert("Informe a data de pagamento.");
+
+    // Quantidade de parcelas: só usa o campo se for parcelado/fixo
+    let qtdParcelas = 1;
+    if (recorrencia === 'parcelado') {
+        qtdParcelas = parseInt(document.getElementById('qtdParcelas').value) || 1;
+    } else if (recorrencia === 'fixo') {
+        qtdParcelas = 12;
     }
 
-    indexEdicaoConfig = null; // Limpa o estado de edição
-    fecharEdicaoConfig(); // Limpa inputs e atualiza a tela
-    popularSelects(); // Atualiza os dropdowns dos lançamentos
+    const isParcelado = qtdParcelas > 1;
+    const idGrupoNovo = isParcelado ? Date.now().toString() : null;
+
+    // Coleta rateio
+    const linhasRateio = document.querySelectorAll('#containerRateio .rateio-linha');
+    const rateio = Array.from(linhasRateio).map(l => ({
+        conta: l.querySelector('.r-c') ? l.querySelector('.r-c').value : '',
+        p: parseFloat(l.querySelector('.r-p') ? l.querySelector('.r-p').value : 0) || 0,
+        v: parseFloat(l.querySelector('.r-v') ? l.querySelector('.r-v').value : 0) || 0
+    })).filter(r => r.conta);
+
+    for (let i = 0; i < qtdParcelas; i++) {
+        const dataParcela = new Date(dataInicial + 'T12:00:00');
+        dataParcela.setMonth(dataParcela.getMonth() + i);
+
+        const novoItem = {
+            id: Date.now() + Math.random(),
+            doc: _resolverDoc(document.getElementById('numDoc').value, recorrencia, i),
+            fornecedor: fornecedor,
+            idFornecedor: document.getElementById('idFornecedor').value,
+            descricao: document.getElementById('descricao').value,
+            valor: recorrencia === 'parcelado' ? (valorTotal / qtdParcelas) : valorTotal,
+            valorTotalPedido: valorTotal,
+            data: dataParcela.toISOString().split('T')[0],
+            status: document.getElementById('status').value || 'pendente',
+            nf: document.getElementById('numNF').value,
+            numNF: document.getElementById('numNF').value,
+            dataEmissao: document.getElementById('dataEmissao').value,
+            tipoImposto: document.getElementById('tipoImposto').value,
+            codServico: document.getElementById('codServico').value,
+            cc: document.getElementById('selCC').value,
+            tipo: document.getElementById('tipo').value,
+            nfAnexada: document.getElementById('nfAnexada').value,
+            rateio: rateio,
+            tipoRateio: document.getElementById('selectModeloPronto') ? document.getElementById('selectModeloPronto').value : '',
+            anexo: anexoBase64
+        };
+
+        // Só adiciona idGrupo e parcela se for série
+        if (isParcelado) {
+            novoItem.idGrupo = idGrupoNovo;
+            novoItem.parcela = `${i + 1}/${qtdParcelas}`;
+        }
+
+        db.push(novoItem);
+    }
+
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+    anexoBase64 = "";
+
+    atualizarSaldos();
+    fecharModal('modalLanc');
+    alert(isParcelado ? `${qtdParcelas} parcelas criadas com sucesso!` : "Lançamento salvo com sucesso!");
 }
 
 function fecharEdicaoConfig() {
@@ -1847,30 +2013,27 @@ function removerItemConfig(index) {
     
     if(abaAtivaConfig === 'bancos') {
         contasBancos.splice(index, 1);
-        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
+        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
     } else if(abaAtivaConfig === 'contas') {
         contasContabeis.splice(index, 1);
-        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
+        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
     } else {
         fornecedoresCadastrados.splice(index, 1);
-        localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
+        localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
         popularDatalistFornecedores();
     }
     renderizarListaConfig();
 }
-function tratarArquivo(e) {
-    const file = e.target.files[0];
+
+function tratarArquivo(event) {
+    const file = event.target.files[0];
     if (file) {
-            document.getElementById('nfAnexada').value = 'sim';
         const reader = new FileReader();
-        reader.onload = function(event) {
-            anexoBase64 = event.target.result;
-            nomeAnexo = file.name;
-            tipoAnexo = file.type;
-            mostrarPreview()
-            // Mostra a lupa e a lixeira assim que carregar
+        reader.onload = function(e) {
+            anexoBase64 = e.target.result; // Salva o base64 aqui
             document.getElementById('btnVerAnexo').style.display = 'inline-block';
             document.getElementById('btnRemoverAnexo').style.display = 'inline-block';
+            if(document.getElementById('nfAnexada')) document.getElementById('nfAnexada').value = 'sim';
         };
         reader.readAsDataURL(file);
     }
@@ -1960,21 +2123,96 @@ function abrirArquivoEmTelaCheia() {
 </div>
 <div id="modalConfirmarEdicao" class="modal" style="z-index: 3000; display:none;">
     <div class="modal-content" style="max-width: 400px; text-align: center; padding: 25px; border-radius: 20px;">
-        <h4 style="margin-top:0;">Deseja replicar as alterações?</h4>
+        <h4 style="margin-top:0;">✏️ Salvar Alterações</h4>
         <p style="font-size: 0.85rem; color: #666; margin-bottom: 20px;">
-            Este lançamento possui parcelas. Como deseja salvar as alterações?
+            Este lançamento faz parte de uma série parcelada.<br>Como deseja aplicar as alterações?
         </p>
-        <button onclick="confirmarSalvarEdicao('unico')" style="width:100%; margin-bottom:10px; background:var(--info); color:white; border:none; padding:12px; border-radius:10px; cursor:pointer; font-weight:bold;">
-            ALTERAR SOMENTE ESTE
+        <button onclick="confirmarSalvarEdicao('unico')" style="width:100%; margin-bottom:10px; background:var(--info); color:white; border:none; padding:14px; border-radius:10px; cursor:pointer; font-weight:bold; font-size:0.9rem;">
+            📌 Alterar APENAS ESTE
         </button>
-        <button onclick="confirmarSalvarEdicao('futuros')" style="width:100%; margin-bottom:10px; background:var(--dark); color:white; border:none; padding:12px; border-radius:10px; cursor:pointer; font-weight:bold;">
-            ALTERAR ESTE E AS DEMAIS PARCELAS
+        <button onclick="confirmarSalvarEdicao('futuros')" style="width:100%; margin-bottom:10px; background:var(--warning); color:var(--dark); border:none; padding:14px; border-radius:10px; cursor:pointer; font-weight:bold; font-size:0.9rem;">
+            ⏩ Alterar ESTE E OS PRÓXIMOS
         </button>
-        <button onclick="fecharModal('modalConfirmarEdicao')" style="width:100%; background:#eee; color:#666; border:none; padding:10px; border-radius:10px; cursor:pointer;">
+        <button onclick="confirmarSalvarEdicao('todos')" style="width:100%; margin-bottom:10px; background:var(--dark); color:white; border:none; padding:14px; border-radius:10px; cursor:pointer; font-weight:bold; font-size:0.9rem;">
+            🔄 Alterar TODOS DA SÉRIE
+        </button>
+        <button onclick="fecharModal('modalConfirmarEdicao'); _dadosEdicaoPendente = null;" style="width:100%; background:#eee; color:#666; border:none; padding:10px; border-radius:10px; cursor:pointer;">
             CANCELAR
         </button>
     </div>
 </div>
+
+<!-- Modal Configuração Firebase -->
+<div id="modalFirebaseConfig" class="modal" style="z-index:9999;">
+  <div class="modal-content" style="max-width:480px;">
+    <h3 style="margin-top:0;">🔥 Configuração do Firebase</h3>
+    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">
+      Cole abaixo as credenciais do seu projeto Firebase (Console → Configurações do projeto → Seus apps → SDK de configuração).
+    </p>
+
+    <label class="label-f">API KEY</label>
+    <input type="text" id="fb_apiKey" placeholder="AIzaSy..." style="width:100%;">
+
+    <label class="label-f">AUTH DOMAIN</label>
+    <input type="text" id="fb_authDomain" placeholder="seu-projeto.firebaseapp.com" style="width:100%;">
+
+    <label class="label-f">PROJECT ID</label>
+    <input type="text" id="fb_projectId" placeholder="seu-projeto" style="width:100%;">
+
+    <label class="label-f">STORAGE BUCKET</label>
+    <input type="text" id="fb_storageBucket" placeholder="seu-projeto.appspot.com" style="width:100%;">
+
+    <label class="label-f">MESSAGING SENDER ID</label>
+    <input type="text" id="fb_messagingSenderId" placeholder="123456789" style="width:100%;">
+
+    <label class="label-f">APP ID</label>
+    <input type="text" id="fb_appId" placeholder="1:123:web:abc..." style="width:100%;">
+
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button onclick="salvarFirebaseConfig()" style="flex:2;background:var(--primary);color:white;border:none;padding:14px;border-radius:10px;font-weight:bold;cursor:pointer;">
+        💾 SALVAR E CONECTAR
+      </button>
+      <button onclick="fecharModal('modalFirebaseConfig')" style="flex:1;background:#eee;border:none;padding:14px;border-radius:10px;cursor:pointer;">
+        CANCELAR
+      </button>
+    </div>
+
+    <div id="fbConfigStatus" style="margin-top:12px;font-size:0.8rem;text-align:center;"></div>
+  </div>
+</div>
+
+<script>
+function abrirModalFirebaseConfig() {
+    // Pré-preenche se já houver configuração salva
+    const cfg = JSON.parse(localStorage.getItem('mbtx_firebase_config') || '{}');
+    ['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId'].forEach(k => {
+        const el = document.getElementById('fb_' + k);
+        if (el && cfg[k]) el.value = cfg[k];
+    });
+    document.getElementById('modalFirebaseConfig').style.display = 'flex';
+}
+
+function salvarFirebaseConfig() {
+    const cfg = {
+        apiKey:            document.getElementById('fb_apiKey').value.trim(),
+        authDomain:        document.getElementById('fb_authDomain').value.trim(),
+        projectId:         document.getElementById('fb_projectId').value.trim(),
+        storageBucket:     document.getElementById('fb_storageBucket').value.trim(),
+        messagingSenderId: document.getElementById('fb_messagingSenderId').value.trim(),
+        appId:             document.getElementById('fb_appId').value.trim()
+    };
+
+    if (!cfg.projectId || !cfg.apiKey) {
+        document.getElementById('fbConfigStatus').innerHTML = '<span style="color:red;">⚠️ Preencha ao menos API Key e Project ID.</span>';
+        return;
+    }
+
+    localStorage.setItem('mbtx_firebase_config', JSON.stringify(cfg));
+    document.getElementById('fbConfigStatus').innerHTML = '<span style="color:green;">✅ Configuração salva! Recarregando...</span>';
+    setTimeout(() => location.reload(), 1200);
+}
+</script>
+
 </body>
 <datalist id="listaSugestoesFornecedores"></datalist>
 </html>
