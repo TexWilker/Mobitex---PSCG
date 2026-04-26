@@ -8,85 +8,54 @@
       import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, writeBatch }
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-      // ── Carrega config salva no localStorage (preenchida pelo usuário) ──────
-      function getFirebaseConfig() {
-        try { return JSON.parse(localStorage.getItem('mbtx_firebase_config') || 'null'); }
-        catch(e) { return null; }
-      }
-
-      let _app, _db;
-
-      function initFirebase() {
-        const cfg = getFirebaseConfig();
-        if (!cfg || !cfg.projectId) return false;
-        try {
-          _app = initializeApp(cfg);
-          _db  = getFirestore(_app);
-          return true;
-        } catch(e) { console.error('Firebase init error', e); return false; }
-      }
-
-      // ── Expõe funções globais para o restante do código ──────────────────────
-      window._fbReady = initFirebase();
-
-      window.fbSaveDoc = async function(colecao, id, dados) {
-        if (!_db) return false;
-        try {
-          // Remove campos undefined que o Firestore rejeita
-          const limpo = JSON.parse(JSON.stringify(dados));
-          await setDoc(doc(_db, colecao, String(id)), limpo);
-          return true;
-        } catch(e) { console.error('fbSaveDoc', e); return false; }
+      const firebaseConfig = {
+        apiKey: "AIzaSyBx2aaNJuDfPBggUKhSvkibAHhsgUuol-U",
+        authDomain: "mobitex-pscg.firebaseapp.com",
+        projectId: "mobitex-pscg",
+        storageBucket: "mobitex-pscg.firebasestorage.app",
+        messagingSenderId: "194303589170",
+        appId: "1:194303589170:web:b59f49f3890015c5acf52b",
+        measurementId: "G-V997Q0HR33"
       };
 
-      window.fbDeleteDoc = async function(colecao, id) {
-        if (!_db) return false;
-        try { await deleteDoc(doc(_db, colecao, String(id))); return true; }
-        catch(e) { console.error('fbDeleteDoc', e); return false; }
+      const _app = initializeApp(firebaseConfig);
+      const _db  = getFirestore(_app);
+
+      window.fbSaveList = async function(colecao, lista) {
+        try {
+          const batch = writeBatch(_db);
+          const snap = await getDocs(collection(_db, colecao));
+          snap.docs.forEach(d => batch.delete(d.ref));
+          lista.forEach((item, i) => {
+            const id = (item && item.id) ? String(item.id) : String(i);
+            batch.set(doc(_db, colecao, id), JSON.parse(JSON.stringify(item)));
+          });
+          await batch.commit();
+        } catch(e) { console.error('fbSaveList', e); }
+      };
+
+      window.fbSaveObject = async function(colecao, id, obj) {
+        try {
+          await setDoc(doc(_db, colecao, id), { __data: JSON.stringify(obj) });
+        } catch(e) { console.error('fbSaveObject', e); }
       };
 
       window.fbLoadCollection = async function(colecao) {
-        if (!_db) return null;
         try {
           const snap = await getDocs(collection(_db, colecao));
           return snap.docs.map(d => d.data());
         } catch(e) { console.error('fbLoadCollection', e); return null; }
       };
 
-      window.fbSaveList = async function(colecao, lista) {
-        if (!_db) return false;
-        try {
-          const batch = writeBatch(_db);
-          // Apaga todos os docs antigos desta coleção primeiro
-          const snap = await getDocs(collection(_db, colecao));
-          snap.docs.forEach(d => batch.delete(d.ref));
-          // Adiciona os novos
-          lista.forEach((item, i) => {
-            const id = (typeof item === 'object' && item.id) ? String(item.id) : String(i);
-            batch.set(doc(_db, colecao, id), JSON.parse(JSON.stringify(item)));
-          });
-          await batch.commit();
-          return true;
-        } catch(e) { console.error('fbSaveList', e); return false; }
-      };
-
-      // Salva objeto simples (config, modelosRateio) como doc único
-      window.fbSaveObject = async function(colecao, id, obj) {
-        if (!_db) return false;
-        try {
-          await setDoc(doc(_db, colecao, id), { __data: JSON.stringify(obj) });
-          return true;
-        } catch(e) { console.error('fbSaveObject', e); return false; }
-      };
-
       window.fbLoadObject = async function(colecao, id) {
-        if (!_db) return null;
         try {
           const snap = await getDoc(doc(_db, colecao, id));
           if (!snap.exists()) return null;
           return JSON.parse(snap.data().__data);
         } catch(e) { console.error('fbLoadObject', e); return null; }
       };
+
+      window._fbReady = true;
     </script>
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -293,7 +262,6 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h2 style="margin:0; font-size: 1.2rem; color: var(--dark);">MobiTex PSCG</h2>
         <button onclick="abrirConfig()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;">⚙️</button>
-        <button onclick="abrirModalFirebaseConfig()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;" title="Configurar Firebase">🔥</button>
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
@@ -522,70 +490,64 @@
     let modelosRateio = JSON.parse(localStorage.getItem('mbtx_modelos_rateio')) || {};
     let lancamentoTemporarioParaSalvar = null; // Variável global para guardar os dados temporariamente
 
-   window.onload = async () => {
-    // Mostra loading
-    document.body.insertAdjacentHTML('afterbegin', '<div id="loadingFb" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;font-size:1.1rem;gap:15px;"><div>🔥 Conectando ao Firebase...</div><div id="loadingMsg" style="font-size:0.8rem;opacity:0.7;"></div></div>');
-
+   window.onload = () => {
     const mesAtual = new Date().toISOString().substring(0, 7);
     const fMes = document.getElementById('filtroMes');
     const fMesP = document.getElementById('filtroMesPedidos');
     if(fMes) fMes.value = mesAtual;
     if(fMesP) fMesP.value = mesAtual;
 
-    // Verifica se Firebase está configurado
-    const fbConfig = localStorage.getItem('mbtx_firebase_config');
-    if (!fbConfig || !JSON.parse(fbConfig).projectId) {
-        document.getElementById('loadingFb').remove();
-        abrirModalFirebaseConfig();
-        return;
-    }
-
-    // Aguarda módulo Firebase carregar (type="module" é async)
-    let tentativas = 0;
-    while (!window.fbLoadCollection && tentativas < 50) {
-        await new Promise(r => setTimeout(r, 100));
-        tentativas++;
-    }
-
-    if (!window.fbLoadCollection) {
-        document.getElementById('loadingFb').remove();
-        alert("Erro ao carregar Firebase. Verifique a configuração.");
-        abrirModalFirebaseConfig();
-        return;
-    }
-
-    try {
-        document.getElementById('loadingMsg').textContent = 'Carregando lançamentos...';
-        const fbDb = await fbLoadCollection('lancamentos');
-        if (fbDb !== null) {
-            db = fbDb;
-            localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
-        }
-
-        document.getElementById('loadingMsg').textContent = 'Carregando configurações...';
-        const fbBancos = await fbLoadObject('config', 'bancos');
-        if (fbBancos) { contasBancos = fbBancos; localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos); }
-
-        const fbCC = await fbLoadObject('config', 'contas');
-        if (fbCC) { contasContabeis = fbCC; localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis); }
-
-        const fbFornecedores = await fbLoadObject('config', 'fornecedores');
-        if (fbFornecedores) { fornecedoresCadastrados = fbFornecedores; localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados); }
-
-        const fbRateio = await fbLoadObject('config', 'modelosRateio');
-        if (fbRateio) { modelosRateio = fbRateio; localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio); }
-
-    } catch(e) {
-        console.error('Erro ao carregar do Firebase:', e);
-        alert('Erro ao conectar ao Firebase. Usando dados locais.');
-    }
-
-    document.getElementById('loadingFb').remove();
     popularSelects();
     popularSelectModelos();
     popularDatalistFornecedores();
     atualizarSaldos();
+
+    // Carrega do Firebase em segundo plano (não bloqueia o app)
+    sincronizarFirebase();
 };
+
+async function sincronizarFirebase() {
+    // Aguarda o módulo Firebase inicializar (máx 5 segundos)
+    let t = 0;
+    while (!window.fbLoadCollection && t++ < 50) {
+        await new Promise(r => setTimeout(r, 100));
+    }
+
+    if (!window.fbLoadCollection) {
+        console.warn('Firebase não carregou, usando dados locais.');
+        return;
+    }
+
+    try {
+        const fbDb = await fbLoadCollection('lancamentos');
+        if (fbDb && fbDb.length > 0) {
+            db = fbDb;
+            localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+        }
+
+        const fbBancos = await fbLoadObject('config', 'bancos');
+        if (fbBancos) { contasBancos = fbBancos; localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); }
+
+        const fbCC = await fbLoadObject('config', 'contas');
+        if (fbCC) { contasContabeis = fbCC; localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); }
+
+        const fbFornecedores = await fbLoadObject('config', 'fornecedores');
+        if (fbFornecedores) { fornecedoresCadastrados = fbFornecedores; localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); }
+
+        const fbRateio = await fbLoadObject('config', 'modelosRateio');
+        if (fbRateio) { modelosRateio = fbRateio; localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); }
+
+        // Atualiza a tela com os dados do Firebase
+        popularSelects();
+        popularSelectModelos();
+        popularDatalistFornecedores();
+        atualizarSaldos();
+
+        console.log('✅ Firebase sincronizado com sucesso.');
+    } catch(e) {
+        console.error('Erro ao sincronizar Firebase:', e);
+    }
+}
 
 
 
@@ -1831,23 +1793,23 @@ function salvarNovoItem() {
             db.forEach(l => {
                 if (l.rateio) l.rateio.forEach(r => { if (r.conta === nomeAntigo) r.conta = nome; });
             });
-            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
-            if (window.fbSaveObject) fbSaveObject('config', 'bancos', contasBancos);
-            localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-            if (window.fbSaveList) fbSaveList('lancamentos', db);
+            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
+           
+            localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+           
         } else if (abaAtivaConfig === 'contas') {
             const nomeAntigo = contasContabeis[indexEdicaoConfig];
             contasContabeis[indexEdicaoConfig] = nome;
             db.forEach(l => { if (l.cc === nomeAntigo) l.cc = nome; });
-            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
-            if (window.fbSaveObject) fbSaveObject('config', 'contas', contasContabeis);
-            localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-            if (window.fbSaveList) fbSaveList('lancamentos', db);
+            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
+           
+            localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+           
         } else {
             const id = document.getElementById('novoItemId').value.trim();
             fornecedoresCadastrados[indexEdicaoConfig] = { nome, idFornecedor: id };
-            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
-            if (window.fbSaveObject) fbSaveObject('config', 'fornecedores', fornecedoresCadastrados);
+            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
+           
             popularDatalistFornecedores();
         }
         indexEdicaoConfig = null;
@@ -1855,19 +1817,19 @@ function salvarNovoItem() {
         // ── MODO CRIAÇÃO ───────────────────────────────────────────────
         if (abaAtivaConfig === 'bancos') {
             contasBancos.push(nome);
-            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos));
-            if (window.fbSaveObject) fbSaveObject('config', 'bancos', contasBancos);
+            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
+           
         } else if (abaAtivaConfig === 'contas') {
             contasContabeis.push(nome);
-            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis));
-            if (window.fbSaveObject) fbSaveObject('config', 'contas', contasContabeis);
+            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
+           
         } else {
             const id = document.getElementById('novoItemId').value.trim();
             if (!id) return alert("Informe o ID do fornecedor.");
             if (fornecedoresCadastrados.find(f => f.idFornecedor === id)) return alert("ID já cadastrado!");
             fornecedoresCadastrados.push({ nome, idFornecedor: id });
-            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados));
-            if (window.fbSaveObject) fbSaveObject('config', 'fornecedores', fornecedoresCadastrados);
+            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
+           
             popularDatalistFornecedores();
         }
     }
@@ -2141,77 +2103,6 @@ function abrirArquivoEmTelaCheia() {
         </button>
     </div>
 </div>
-
-<!-- Modal Configuração Firebase -->
-<div id="modalFirebaseConfig" class="modal" style="z-index:9999;">
-  <div class="modal-content" style="max-width:480px;">
-    <h3 style="margin-top:0;">🔥 Configuração do Firebase</h3>
-    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">
-      Cole abaixo as credenciais do seu projeto Firebase (Console → Configurações do projeto → Seus apps → SDK de configuração).
-    </p>
-
-    <label class="label-f">API KEY</label>
-    <input type="text" id="fb_apiKey" placeholder="AIzaSy..." style="width:100%;">
-
-    <label class="label-f">AUTH DOMAIN</label>
-    <input type="text" id="fb_authDomain" placeholder="seu-projeto.firebaseapp.com" style="width:100%;">
-
-    <label class="label-f">PROJECT ID</label>
-    <input type="text" id="fb_projectId" placeholder="seu-projeto" style="width:100%;">
-
-    <label class="label-f">STORAGE BUCKET</label>
-    <input type="text" id="fb_storageBucket" placeholder="seu-projeto.appspot.com" style="width:100%;">
-
-    <label class="label-f">MESSAGING SENDER ID</label>
-    <input type="text" id="fb_messagingSenderId" placeholder="123456789" style="width:100%;">
-
-    <label class="label-f">APP ID</label>
-    <input type="text" id="fb_appId" placeholder="1:123:web:abc..." style="width:100%;">
-
-    <div style="display:flex;gap:10px;margin-top:20px;">
-      <button onclick="salvarFirebaseConfig()" style="flex:2;background:var(--primary);color:white;border:none;padding:14px;border-radius:10px;font-weight:bold;cursor:pointer;">
-        💾 SALVAR E CONECTAR
-      </button>
-      <button onclick="fecharModal('modalFirebaseConfig')" style="flex:1;background:#eee;border:none;padding:14px;border-radius:10px;cursor:pointer;">
-        CANCELAR
-      </button>
-    </div>
-
-    <div id="fbConfigStatus" style="margin-top:12px;font-size:0.8rem;text-align:center;"></div>
-  </div>
-</div>
-
-<script>
-function abrirModalFirebaseConfig() {
-    // Pré-preenche se já houver configuração salva
-    const cfg = JSON.parse(localStorage.getItem('mbtx_firebase_config') || '{}');
-    ['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId'].forEach(k => {
-        const el = document.getElementById('fb_' + k);
-        if (el && cfg[k]) el.value = cfg[k];
-    });
-    document.getElementById('modalFirebaseConfig').style.display = 'flex';
-}
-
-function salvarFirebaseConfig() {
-    const cfg = {
-        apiKey:            document.getElementById('fb_apiKey').value.trim(),
-        authDomain:        document.getElementById('fb_authDomain').value.trim(),
-        projectId:         document.getElementById('fb_projectId').value.trim(),
-        storageBucket:     document.getElementById('fb_storageBucket').value.trim(),
-        messagingSenderId: document.getElementById('fb_messagingSenderId').value.trim(),
-        appId:             document.getElementById('fb_appId').value.trim()
-    };
-
-    if (!cfg.projectId || !cfg.apiKey) {
-        document.getElementById('fbConfigStatus').innerHTML = '<span style="color:red;">⚠️ Preencha ao menos API Key e Project ID.</span>';
-        return;
-    }
-
-    localStorage.setItem('mbtx_firebase_config', JSON.stringify(cfg));
-    document.getElementById('fbConfigStatus').innerHTML = '<span style="color:green;">✅ Configuração salva! Recarregando...</span>';
-    setTimeout(() => location.reload(), 1200);
-}
-</script>
 
 </body>
 <datalist id="listaSugestoesFornecedores"></datalist>
