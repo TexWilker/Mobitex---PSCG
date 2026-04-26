@@ -255,14 +255,19 @@
 
 /* Posição do botão SAP */
 .btn-sap {
-    bottom: 175px; /* Acima do botão Centro de Custo */
+    bottom: 175px;
     right: 32px;
     background: var(--dark);
 }
 
-/* Posição do botão Centro de Custo (Azul) */
 .btn-cc {
-    bottom: 110px; /* Acima do botão + */
+    bottom: 110px;
+    right: 32px;
+    background: var(--dark);
+}
+
+.btn-config {
+    bottom: 240px;
     right: 32px;
     background: var(--dark);
 }
@@ -326,7 +331,7 @@
 <div id="appContent" style="display:none;">
 
 <button class="btn-export" onclick="document.getElementById('importadorCSV').click()" 
-        style="bottom: 240px; right: 32px; background: var(--info);" title="Importar Planilha">
+        style="bottom: 305px; right: 32px; background: var(--info);" title="Importar Planilha">
     📥
 </button>
 
@@ -340,12 +345,12 @@
 </button>
 
 <button class="btn-add" onclick="abrirNovoLançamento()"title="Novo Lançamento">+</button>
+<button class="btn-export btn-config" onclick="abrirConfig()" title="Configurações">⚙️</button>
 
     <div class="container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h2 style="margin:0; font-size: 1.2rem; color: var(--dark);">MobiTex PSCG</h2>
-        <button onclick="abrirConfig()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;">⚙️</button>
-        <button onclick="fazerLogout()" style="background:none; border:none; font-size: 1.3rem; cursor:pointer;" title="Sair">🔓</button>
+        <button onclick="fazerLogout()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;" title="Sair">🔓</button>
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
@@ -553,7 +558,7 @@
     <button onclick="abrirConfigRateio()" style="flex:1; background:#eee;">Rateios</button>
 </div>
         <div class="rateio-box" id="areaInputConfig" style="display: flex; gap: 5px; flex-wrap: nowrap; align-items: center;">
-    <input type="text" id="novoItemNome" placeholder="Centro..." style="flex: 2;">
+    <input type="text" id="novoItemNome" placeholder="Centro de Custo..." style="flex: 2;">
     <input type="text" id="novoItemId" placeholder="ID" style="flex: 0.5; display: none;"> 
     <button onclick="salvarNovoItem()" style="width: 40px; height: 38px; background:var(--primary); color:white; border:none; border-radius:5px; flex-shrink: 0;">+</button>
 </div>
@@ -1812,7 +1817,8 @@ function mudarAbaConfig(aba) {
 
     // Resetar campos de input
     document.getElementById('novoItemNome').value = '';
-    document.getElementById('novoItemNome').placeholder = (aba === 'fornecedores') ? "Nome Fornecedor..." : "Centro..." ; "Conta...";
+    const placeholders = { bancos: 'Centro de Custo...', contas: 'Nome Conta...', fornecedores: 'Nome Fornecedor...' };
+    document.getElementById('novoItemNome').placeholder = placeholders[aba] || 'Nome...';
     
     const campoId = document.getElementById('novoItemId');
     if (campoId) {
