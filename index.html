@@ -579,6 +579,11 @@
     let modelosRateio = JSON.parse(localStorage.getItem('mbtx_modelos_rateio')) || {};
     let lancamentoTemporarioParaSalvar = null; // Variável global para guardar os dados temporariamente
 
+
+function _lsSaveGlobal(key, val) {
+    try { localStorage.setItem(key, typeof val === 'string' ? val : JSON.stringify(val)); }
+    catch(e) { console.error('localStorage failed for ' + key, e); }
+}
    window.onload = () => {
     const mesAtual = new Date().toISOString().substring(0, 7);
     const fMes = document.getElementById('filtroMes');
@@ -1106,36 +1111,61 @@ function excluirModelo(nome) {
 }
 function exportarPlanilhaPorMes() {
     const mesSelecionado = document.getElementById('filtroMes').value;
-    if(!mesSelecionado) return alert("Selecione um mês primeiro!");
+    if (!mesSelecionado) return alert("Selecione um mês primeiro!");
 
-    const dadosMes = db.filter(l => l.data.substring(0, 7) === mesSelecionado);
+    const dadosMes = db.filter(l => l.data && l.data.substring(0, 7) === mesSelecionado);
+    if (dadosMes.length === 0) return alert("Não existem lançamentos para o mês selecionado.");
 
-    if (dadosMes.length === 0) {
-        return alert("Não existem lançamentos para o mês selecionado.");
-    }
+    const meses = ['','JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO',
+                   'JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+    const [ano, mesNum] = mesSelecionado.split('-');
+    const nomeMes = meses[parseInt(mesNum)];
 
-    // 1. ADICIONADO "Nº Pedido" AO CABEÇALHO
-    let csvContent = "Fornecedor;Nº Pedido;Cod Servico;Valor Total;Cod Imposto;Descricao\n";
+    const linhas = dadosMes.map(l => {
+        let dataEmissao = '';
+        if (l.dataEmissao) {
+            const p = l.dataEmissao.split('-');
+            if (p.length === 3) dataEmissao = `${p[2]}.${p[1]}.${p[0]}`;
+            else dataEmissao = l.dataEmissao;
+        }
+        const esc = v => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<tr>
+            <td>${esc(l.doc)}</td>
+            <td>${esc(l.status)}</td>
+            <td>${esc(l.idFornecedor)}</td>
+            <td>${esc(l.fornecedor)}</td>
+            <td style="mso-number-format:'#,##0.00'">${parseFloat(l.valor || 0).toFixed(2)}</td>
+            <td>${esc(l.descricao)}</td>
+            <td>${esc(l.tipoImposto)}</td>
+            <td>${esc(l.nf || l.numNF)}</td>
+            <td>${esc(dataEmissao)}</td>
+        </tr>`;
+    }).join('');
 
-    dadosMes.forEach(l => {
-        // 2. ADICIONADO l.doc ÀS LINHAS
-        const linha = [
-            `"${l.fornecedor || '---'}"`,
-            `"${l.doc || '---'}"`,               // Puxa o número do pedido/documento
-            `"${l.codServico || '0000'}"`,
-            parseFloat(l.valor || 0).toFixed(2),
-            `"${l.tipoImposto || 'I6'}"`,
-            `"${l.descricao || 'Sem descrição'}"`
-        ].join(";");
-        csvContent += linha + "\n";
-    });
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:x="urn:schemas-microsoft-com:office:excel"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>
+  <x:ExcelWorksheet><x:Name>${nomeMes} ${ano}</x:Name>
+  <x:WorksheetOptions><x:Selected/></x:WorksheetOptions></x:ExcelWorksheet>
+</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>
+  table{border-collapse:collapse;font-family:Arial;font-size:10pt;}
+  th{background-color:#2c3e50;color:white;font-weight:bold;padding:6px 10px;border:1px solid #999;text-align:center;white-space:nowrap;}
+  td{padding:5px 10px;border:1px solid #ddd;vertical-align:top;}
+  tr:nth-child(even) td{background-color:#f2f2f2;}
+</style></head>
+<body><table><thead><tr>
+  <th>N\u00ba do Pedido</th><th>Status</th><th>ID FORNECEDOR</th><th>FORNECEDOR</th>
+  <th>VALOR TOTAL</th><th>DESCRI\u00c7\u00c3O</th><th>TIPO DE IMPOSTO</th>
+  <th>N\u00ba NOTA FISCAL (NF)</th><th>DATA DE EMISS\u00c3O</th>
+</tr></thead><tbody>${linhas}</tbody></table></body></html>`;
 
-    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute("href", url);
-    link.setAttribute("download", `relatorio_mobitex_${mesSelecionado}.csv`);
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${nomeMes}_${ano}.xls`;
     link.click();
 }
 function toggleParcelas() {
@@ -1555,35 +1585,20 @@ function confirmarSalvarEdicao(modo) {
         }
     } 
     else if (modo === 'futuros') {
-        // Altera este e todos os futuros do mesmo grupo
+        // Remove data e valor do spread para não sobrescrever as datas/valores individuais
+        const { data: _d, valor: _v, ...dadosSemData } = dadosEditados;
         db = db.map(item => {
             if (item.idGrupo === itemOriginal.idGrupo && item.data >= itemOriginal.data) {
-                return {
-                    ...item,
-                    ...dadosEditados,
-                    id: item.id,
-                    idGrupo: item.idGrupo,
-                    parcela: item.parcela,
-                    data: item.data,       // mantém a data de vencimento de cada parcela
-                    valor: item.valor      // mantém o valor de cada parcela
-                };
+                return { ...item, ...dadosSemData, id: item.id, idGrupo: item.idGrupo, parcela: item.parcela, data: item.data, valor: item.valor };
             }
             return item;
         });
     } 
     else if (modo === 'todos') {
-        // Altera todas as parcelas do grupo
+        const { data: _d, valor: _v, ...dadosSemData } = dadosEditados;
         db = db.map(item => {
             if (item.idGrupo === itemOriginal.idGrupo) {
-                return {
-                    ...item,
-                    ...dadosEditados,
-                    id: item.id,
-                    idGrupo: item.idGrupo,
-                    parcela: item.parcela,
-                    data: item.data,       // mantém a data de vencimento de cada parcela
-                    valor: item.valor      // mantém o valor de cada parcela
-                };
+                return { ...item, ...dadosSemData, id: item.id, idGrupo: item.idGrupo, parcela: item.parcela, data: item.data, valor: item.valor };
             }
             return item;
         });
@@ -1595,10 +1610,13 @@ function confirmarSalvarEdicao(modo) {
 }
 
 function _finalizarSalvarEdicao() {
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+    // 1. Salva SEMPRE no localStorage (garantido, síncrono)
+    try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) { console.error('localStorage error', e); }
+    // 2. Sincroniza Firebase em segundo plano
+    if (window.fbSaveList) fbSaveList('lancamentos', db).catch(e => console.error('Firebase sync error', e));
     if (typeof atualizarSaldos === "function") atualizarSaldos();
     fecharModal('modalLanc');
-    alert("Alterações salvas com sucesso!");
+    alert("Lançamento salvo com sucesso!");
 }
 function abrirEditar(id) {
     const item = db.find(t => t.id == id);
@@ -1679,7 +1697,9 @@ function abrirEditar(id) {
         document.getElementById('data').value = l.data || '';
         document.getElementById('selCC').value = l.cc || '';
         document.getElementById('status').value = l.status || 'pendente';
-        document.getElementById('recorrencia').value = 'unico'; 
+        // Preserva o tipo de recorrência correto
+        const recEl = document.getElementById('recorrencia');
+        if (recEl) recEl.value = l.idGrupo ? (l.parcela ? 'parcelado' : 'fixo') : 'unico';
         document.getElementById('qtdParcelas').value = 1;
 	document.getElementById('btnExcluir').style.display = 'block';
         document.getElementById('nfAnexada').value = l.nfAnexada || 'nenhum';
@@ -1872,6 +1892,8 @@ function prepararEdicaoConfig(index) {
 function salvarNovoItem() {
     const nome = document.getElementById('novoItemNome').value.trim();
     if (!nome) return alert("Informe o nome.");
+    // Helper: salva array no localStorage com segurança
+    const _lsSave = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.error('ls error', e); } };
 
     if (indexEdicaoConfig !== null) {
         // ── MODO EDIÇÃO ────────────────────────────────────────────────
