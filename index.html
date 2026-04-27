@@ -9,8 +9,6 @@
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
       import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-      import { getStorage, ref, uploadString, getDownloadURL, deleteObject }
-        from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
       const firebaseConfig = {
         apiKey: "AIzaSyBx2aaNJuDfPBggUKhSvkibAHhsgUuol-U",
@@ -25,7 +23,6 @@
       const _app = initializeApp(firebaseConfig);
       const _db  = getFirestore(_app);
       const _auth = getAuth(_app);
-      const _storage = getStorage(_app);
 
       // Monitora estado de autenticação
       onAuthStateChanged(_auth, async (user) => {
@@ -78,7 +75,7 @@
           });
           // Limpa undefined/NaN que o Firestore rejeita
           const listaLimpa = JSON.parse(JSON.stringify(listaSemAnexo));
-          await setDoc(doc(_db, colecao, '__lista__'), {
+          await setDoc(doc(_db, colecao, '_lista'), {
             __data: JSON.stringify(listaLimpa),
             __ts: Date.now()
           });
@@ -104,7 +101,7 @@
 
       window.fbLoadCollection = async function(colecao) {
         try {
-          const snap = await getDoc(doc(_db, colecao, '__lista__'));
+          const snap = await getDoc(doc(_db, colecao, '_lista'));
           if (!snap.exists()) { console.log('Firebase: ' + colecao + ' vazio'); return null; }
           const lista = JSON.parse(snap.data().__data);
           console.log('✅ Firebase: ' + colecao + ' carregado (' + lista.length + ' itens)');
@@ -126,33 +123,13 @@
         }
       };
 
-      // Upload de anexo para Firebase Storage
-      window.fbUploadAnexo = async function(itemId, base64Data) {
-        if (!base64Data || !_storage) return null;
-        try {
-          const storageRef = ref(_storage, 'anexos/' + String(itemId));
-          await uploadString(storageRef, base64Data, 'data_url');
-          const url = await getDownloadURL(storageRef);
-          console.log('✅ Anexo enviado ao Storage:', itemId);
-          return url;
-        } catch(e) {
-          console.error('❌ fbUploadAnexo erro:', e.code, e.message);
-          mostrarErroFb('Erro no anexo: ' + (e.code || e.message));
-          return null;
-        }
-      };
-
-      window.fbDeleteAnexo = async function(itemId) {
-        if (!_storage) return;
-        try {
-          await deleteObject(ref(_storage, 'anexos/' + String(itemId)));
-        } catch(e) { /* ignora se não existir */ }
-      };
 
       window._fbReady = true;
       console.log('🔥 Firebase inicializado: mobitex-pscg');
     </script>
 
+    <!-- SheetJS para leitura de .xlsx -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MobiTex PSCG</title>
     <style>
@@ -306,6 +283,12 @@
     background: var(--dark);
 }
 
+.btn-backup {
+    bottom: 370px;
+    right: 32px;
+    background: var(--purple);
+}
+
 /* Ajuste no botão + existente para alinhar o tamanho */
 .btn-add {
     right: 25px; /* Mantém sua posição original ou ajuste conforme preferir */
@@ -365,11 +348,11 @@
 <div id="appContent" style="display:none;">
 
 <button class="btn-export" onclick="document.getElementById('importadorCSV').click()" 
-        style="bottom: 305px; right: 32px; background: var(--info);" title="Importar Planilha">
+        style="bottom: 435px; right: 32px; background: var(--info);" title="Importar Planilha">
     📥
 </button>
 
-<input type="file" id="importadorCSV" style="display:none" accept=".csv" onchange="processarPlanilha(event)">
+<input type="file" id="importadorCSV" style="display:none" accept=".xlsx,.csv" onchange="processarPlanilha(event)">
 <button class="btn-export btn-sap" onclick="exportarPlanilhaPorMes()" title="Exportar SAP">
     📋
 </button>
@@ -380,11 +363,13 @@
 
 <button class="btn-add" onclick="abrirNovoLançamento()"title="Novo Lançamento">+</button>
 <button class="btn-export btn-config" onclick="abrirConfig()" title="Configurações">⚙️</button>
+<button class="btn-export btn-backup" onclick="exportarBackupCompleto()" title="Backup Completo JSON">💾</button>
 
     <div class="container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h2 style="margin:0; font-size: 1.2rem; color: var(--dark);">MobiTex PSCG</h2>
         <button onclick="fazerLogout()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;" title="Sair">🔓</button>
+        <button onclick="abrirConfigCloudinary()" style="background:none; border:none; font-size: 1.3rem; cursor:pointer;" title="Configurar Cloudinary">☁️</button>
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
@@ -647,17 +632,20 @@ window.sincronizarFirebase = async function sincronizarFirebase() {
     try {
         const fbDb = await fbLoadCollection('lancamentos');
         if (fbDb && fbDb.length > 0) {
-            // Dados vêm do Firestore com URLs do Storage (não base64)
             // Preserva base64 local para itens que ainda não foram enviados ao Storage
             const localDb = JSON.parse(localStorage.getItem('mbtx_v82_db') || '[]');
             const localAnexos = {};
             localDb.forEach(item => {
                 if (item.anexo && item.anexo.startsWith('data:')) localAnexos[String(item.id)] = item.anexo;
             });
-            db = fbDb.map(item => {
+            const fbMapped = fbDb.map(item => {
                 const local = localAnexos[String(item.id)];
                 return (local && !item.anexo) ? { ...item, anexo: local } : item;
             });
+            // ⚠️ Merge: mantém registros locais que ainda não chegaram ao Firebase
+            const fbIds = new Set(fbDb.map(r => String(r.id)));
+            const localOnly = localDb.filter(r => !fbIds.has(String(r.id)));
+            db = [...fbMapped, ...localOnly];
             localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
         }
 
@@ -762,77 +750,146 @@ function processarPlanilha(event) {
     const arquivo = event.target.files[0];
     if (!arquivo) return;
 
-    const leitor = new FileReader();
-    leitor.onload = function(e) {
-        try {
-            let conteudo = e.target.result;
+    const nome = arquivo.name.toLowerCase();
 
-            // Passo 1: Remover quebras de linha dentro de aspas (essencial para não dar erro técnico)
-            conteudo = conteudo.replace(/"([^"]*)"/g, (m, p1) => p1.replace(/\r?\n|\r/g, " "));
+    if (nome.endsWith('.xlsx') || nome.endsWith('.xls')) {
+        // ── Importação .xlsx via SheetJS ─────────────────────────────────────
+        const leitor = new FileReader();
+        leitor.onload = async function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                const primeiraAba = workbook.SheetNames[0];
+                const planilha = workbook.Sheets[primeiraAba];
 
-            const linhas = conteudo.split(/\r?\n/);
-            let contagem = 0;
-            const novasEntradas = [];
+                const linhas = XLSX.utils.sheet_to_json(planilha, { header: 1, defval: '' });
 
-            for (let i = 1; i < linhas.length; i++) {
-                let texto = linhas[i].trim();
-                if (!texto || texto.split(';').length < 5) continue;
+                if (linhas.length < 2) { alert('Planilha vazia ou sem dados.'); return; }
 
-                // Divide por ponto e vírgula e limpa aspas e espaços
-                const col = texto.split(";").map(s => s.trim().replace(/^"|"$/g, ''));
+                const cabecalho = linhas[0].map(c => String(c).trim().toLowerCase());
 
-                // Mapeamento baseado na sua estrutura Real:
-                const pedido      = col[0];  // Col A
-                const fornecedor  = col[2];  // Col C
-                const descricao   = col[3];  // Col D
-                const dataEmissao = col[4];  // Col E (Importante)
-                const numeroNF    = col[5];  // Col F (Importante)
-                const valorBruto  = col[8];  // Col I
+                const idx = {
+                    pedido:      cabecalho.findIndex(h => h.includes('pedido')),
+                    status:      cabecalho.findIndex(h => h === 'status'),
+                    idForn:      cabecalho.findIndex(h => h.includes('id fornecedor')),
+                    fornecedor:  cabecalho.findIndex(h => h === 'fornecedor'),
+                    valor:       cabecalho.findIndex(h => h.includes('valor')),
+                    descricao:   cabecalho.findIndex(h => h.includes('descri')),
+                    tipoImposto: cabecalho.findIndex(h => h.includes('imposto')),
+                    nf:          cabecalho.findIndex(h => h.includes('nota fiscal') || h.includes('nf')),
+                    emissao:     cabecalho.findIndex(h => h.includes('emiss')),
+                };
 
-                if (valorBruto) {
-                    // Converte valor brasileiro (1.200,50) para decimal (1200.50)
-                    const valorNum = parseFloat(valorBruto.replace(/\./g, '').replace(',', '.')) || 0;
+                const novasEntradas = [];
 
-                    const novoLancamento = {
-                        id: Date.now() + Math.random(),
-                        doc: pedido,
-                        fornecedor: fornecedor,
-                        descricao: descricao,
-                        
-                        // Campos que o formulário do MobiTex PSCG usa:
-                        emissao: formatarDataParaISO(dataEmissao), 
-                        nf: numeroNF,
-                        
-                        valor: valorNum,
-                        tipoImposto: col[6],
-                        codServico: col[7],
-                        data: formatarDataParaISO(col[9]) || new Date().toISOString().substring(0, 10),
-                        cc: col[11] || "Suprimentos",
-                        status: (col[12] && col[12].toUpperCase().includes("Enviado")) ? "pago" : "pendente",
-                        tipo: "saida",
-                        rateio: []
-                    };
+                for (let i = 1; i < linhas.length; i++) {
+                    const col = linhas[i];
+                    const valorRaw = idx.valor >= 0 ? col[idx.valor] : '';
+                    if (valorRaw === '' || valorRaw === null) continue;
 
-                    novasEntradas.push(novoLancamento);
-                    contagem++;
+                    const valorNum = typeof valorRaw === 'number'
+                        ? valorRaw
+                        : parseFloat(String(valorRaw).replace(/\./g, '').replace(',', '.')) || 0;
+
+                    let emissaoISO = '';
+                    if (idx.emissao >= 0) {
+                        const emRaw = col[idx.emissao];
+                        if (emRaw instanceof Date) {
+                            emissaoISO = emRaw.toISOString().substring(0, 10);
+                        } else if (emRaw) {
+                            const s = String(emRaw).replace(/\./g, '/');
+                            const p = s.split('/');
+                            if (p.length === 3) emissaoISO = p[2] + '-' + p[1].padStart(2,'0') + '-' + p[0].padStart(2,'0');
+                        }
+                    }
+
+                    const statusRaw = idx.status >= 0 ? String(col[idx.status]).trim().toLowerCase() : '';
+                    const statusMapeado = (statusRaw.includes('migo') || statusRaw.includes('miro') || statusRaw.includes('enviado')) ? 'pago' : 'pendente';
+
+                    novasEntradas.push({
+                        id:           Date.now() + Math.random(),
+                        doc:          idx.pedido >= 0 ? String(col[idx.pedido]).trim() : '',
+                        fornecedor:   idx.fornecedor >= 0 ? String(col[idx.fornecedor]).trim() : '',
+                        idFornecedor: idx.idForn >= 0 ? String(col[idx.idForn]).trim() : '',
+                        descricao:    idx.descricao >= 0 ? String(col[idx.descricao]).trim() : '',
+                        emissao:      emissaoISO,
+                        nf:           idx.nf >= 0 ? String(col[idx.nf]).trim() : '',
+                        valor:        valorNum,
+                        tipoImposto:  idx.tipoImposto >= 0 ? String(col[idx.tipoImposto]).trim() : '',
+                        data:         new Date().toISOString().substring(0, 10),
+                        cc:           'Suprimentos',
+                        status:       statusMapeado,
+                        tipo:         'saida',
+                        rateio:       []
+                    });
                 }
-            }
 
-            if (contagem > 0) {
-                db.push(...novasEntradas);
-                localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
-                alert("Sucesso! " + contagem + " lançamentos importados com NF e Emissão.");
-                location.reload(); // Recarrega a página para garantir que tudo apareça
-            } else {
-                alert("Nenhum dado lido. Verifique se o arquivo é CSV separado por ponto e vírgula.");
+                if (novasEntradas.length > 0) {
+                    db.push(...novasEntradas);
+                    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+                    // ⚠️ Aguarda Firebase confirmar antes de recarregar
+                    if (window.fbSaveList) await fbSaveList('lancamentos', db);
+                    alert('Sucesso! ' + novasEntradas.length + ' lançamentos importados da planilha Excel.');
+                    location.reload();
+                } else {
+                    alert('Nenhum dado encontrado. Verifique se a planilha tem a estrutura correta com coluna VALOR TOTAL preenchida.');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Erro ao processar o arquivo .xlsx: ' + err.message);
             }
-        } catch (err) {
-            console.error(err);
-            alert("Erro ao processar: verifique se há símbolos estranhos na planilha.");
-        }
-    };
+        };
+        leitor.readAsArrayBuffer(arquivo);
 
-    leitor.readAsText(arquivo, "ISO-8859-1");
+    } else {
+        // ── Importação legada CSV ─────────────────────────────────────────────
+        const leitor = new FileReader();
+        leitor.onload = async function(e) {
+            try {
+                let conteudo = e.target.result;
+                conteudo = conteudo.replace(/"([^"]*)"/g, (m, p1) => p1.replace(/\r?\n|\r/g, " "));
+                const linhas = conteudo.split(/\r?\n/);
+                let contagem = 0;
+                const novasEntradas = [];
+
+                for (let i = 1; i < linhas.length; i++) {
+                    let texto = linhas[i].trim();
+                    if (!texto || texto.split(';').length < 5) continue;
+                    const col = texto.split(";").map(s => s.trim().replace(/^"|"$/g, ''));
+                    const valorBruto = col[8];
+                    if (valorBruto) {
+                        const valorNum = parseFloat(valorBruto.replace(/\./g, '').replace(',', '.')) || 0;
+                        novasEntradas.push({
+                            id: Date.now() + Math.random(),
+                            doc: col[0], fornecedor: col[2], descricao: col[3],
+                            emissao: formatarDataParaISO(col[4]), nf: col[5],
+                            valor: valorNum, tipoImposto: col[6], codServico: col[7],
+                            data: formatarDataParaISO(col[9]) || new Date().toISOString().substring(0, 10),
+                            cc: col[11] || "Suprimentos",
+                            status: (col[12] && col[12].toUpperCase().includes("Enviado")) ? "pago" : "pendente",
+                            tipo: "saida", rateio: []
+                        });
+                        contagem++;
+                    }
+                }
+
+                if (contagem > 0) {
+                    db.push(...novasEntradas);
+                    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+                    // ⚠️ Aguarda Firebase confirmar antes de recarregar
+                    if (window.fbSaveList) await fbSaveList('lancamentos', db);
+                    alert("Sucesso! " + contagem + " lançamentos importados com NF e Emissão.");
+                    location.reload();
+                } else {
+                    alert("Nenhum dado lido. Verifique se o arquivo é CSV separado por ponto e vírgula.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Erro ao processar: verifique se há símbolos estranhos na planilha.");
+            }
+        };
+        leitor.readAsText(arquivo, "ISO-8859-1");
+    }
 }
 
 function formatarDataParaISO(dataStr) {
@@ -885,19 +942,29 @@ function visualizarAnexo() {
     document.getElementById('modalVisualizarArquivo').style.display = 'flex';
 }
 function removerAnexo() {
-    if (confirm("Tem certeza que deseja remover este anexo?")) {
-        anexoBase64 = ""; // Limpa a variável
-        
-        // Limpa o input file para permitir selecionar o mesmo arquivo depois
+    if (confirm("Tem certeza que deseja remover este anexo? Esta ação se aplicará a todas as parcelas do grupo.")) {
+        anexoBase64 = "";
         const input = document.getElementById('anexo');
         if (input) input.value = "";
-
-        // Esconde os botões de ação
-        document.getElementById('anexo').value = ""
         document.getElementById('btnVerAnexo').style.display = 'none';
         document.getElementById('btnRemoverAnexo').style.display = 'none';
         document.getElementById('nfAnexada').value = 'nao';
-        alert("Anexo removido da memória. Clique em SALVAR para confirmar no banco de dados.");
+
+        // Remove imediatamente do db (incluindo todo o grupo fixo/parcelado)
+        const idAtual = document.getElementById('editId') ? document.getElementById('editId').value : null;
+        if (idAtual) {
+            const item = db.find(t => String(t.id) == String(idAtual));
+            if (item) {
+                if (item.idGrupo) {
+                    db.forEach(t => { if (t.idGrupo === item.idGrupo) t.anexo = ''; });
+                } else {
+                    item.anexo = '';
+                }
+                localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+                if (window.fbSaveList) fbSaveList('lancamentos', db);
+            }
+        }
+        alert("Anexo removido com sucesso!");
     }
 }
 function abrirConfigRateio() {
@@ -1204,7 +1271,134 @@ function exportarPlanilhaPorMes() {
   <th>N\u00ba do Pedido</th><th>Status</th><th>ID FORNECEDOR</th><th>FORNECEDOR</th>
   <th>VALOR TOTAL</th><th>DESCRI\u00c7\u00c3O</th><th>TIPO DE IMPOSTO</th>
   <th>N\u00ba NOTA FISCAL (NF)</th><th>DATA DE EMISS\u00c3O</th>
-</tr></thead><tbody>${linhas}</tbody></table></body></html>`;
+</tr></thead><tbody>${linhas}</tbody></table>
+
+</body></html>`;
+
+// ── Cloudinary Upload (gratuito) ─────────────────────────────────────────────
+const CLOUDINARY_CONFIG = {
+    cloudName:    'dsezhsbxe',
+    uploadPreset: 'mbitex'
+};
+
+async function cloudinaryUpload(base64Data, itemId) {
+    if (!base64Data || !base64Data.startsWith('data:')) return null;
+    if (!CLOUDINARY_CONFIG.cloudName || CLOUDINARY_CONFIG.cloudName === 'SEU_CLOUD_NAME') {
+        console.warn('Cloudinary não configurado');
+        return null;
+    }
+    return new Promise((resolve) => {
+        try {
+            const formData = new FormData();
+            formData.append('file', base64Data);
+            formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
+            formData.append('public_id', 'mobitex_anexo_' + String(itemId));
+            formData.append('overwrite', 'true');
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/auto/upload`, true);
+            xhr.onload = function() {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data.secure_url) {
+                        console.log('\u2705 Cloudinary upload OK:', data.secure_url);
+                        resolve(data.secure_url);
+                    } else {
+                        console.error('\u274c Cloudinary erro:', data.error);
+                        if (typeof mostrarErroFb === 'function') mostrarErroFb('Cloudinary: ' + (data.error?.message || 'Erro desconhecido'));
+                        resolve(null);
+                    }
+                } catch(e) {
+                    console.error('\u274c Cloudinary parse erro:', e);
+                    resolve(null);
+                }
+            };
+            xhr.onerror = function() {
+                console.error('\u274c Cloudinary XHR erro - provavel bloqueio file://');
+                if (typeof mostrarErroFb === 'function') mostrarErroFb('Abra o arquivo via servidor, nao file://, para uploads funcionarem.');
+                resolve(null);
+            };
+            xhr.send(formData);
+        } catch(e) {
+            console.error('\u274c Cloudinary erro:', e);
+            resolve(null);
+        }
+    });
+}
+
+
+
+// Carrega config salva do localStorage
+(function() {
+    const cfg = JSON.parse(localStorage.getItem('mbtx_cloudinary') || '{}');
+    if (cfg.cloudName) {
+        const s = document.querySelector('script:last-of-type');
+        // Atualiza o config em tempo de execução
+        if (typeof CLOUDINARY_CONFIG !== 'undefined') {
+            CLOUDINARY_CONFIG.cloudName = cfg.cloudName;
+            CLOUDINARY_CONFIG.uploadPreset = cfg.uploadPreset;
+        }
+    }
+})();
+
+window.abrirConfigCloudinary = function abrirConfigCloudinary() {
+    const cfg = JSON.parse(localStorage.getItem('mbtx_cloudinary') || '{}');
+    if (cfg.cloudName) document.getElementById('cl_cloudName').value = cfg.cloudName;
+    if (cfg.uploadPreset) document.getElementById('cl_preset').value = cfg.uploadPreset;
+    document.getElementById('modalCloudinary').style.display = 'flex';
+}
+
+window.salvarConfigCloudinary = function salvarConfigCloudinary() {
+    const cloudName = document.getElementById('cl_cloudName').value.trim();
+    const uploadPreset = document.getElementById('cl_preset').value.trim();
+    if (!cloudName || !uploadPreset) {
+        document.getElementById('clStatus').innerHTML = '<span style="color:red;">Preencha os dois campos.</span>';
+        return;
+    }
+    localStorage.setItem('mbtx_cloudinary', JSON.stringify({ cloudName, uploadPreset }));
+    // Atualiza o objeto global
+    CLOUDINARY_CONFIG.cloudName = cloudName;
+    CLOUDINARY_CONFIG.uploadPreset = uploadPreset;
+    document.getElementById('clStatus').innerHTML = '<span style="color:green;">✅ Salvo!</span>';
+    setTimeout(() => fecharModal('modalCloudinary'), 1000);
+}
+
+// Carrega config ao iniciar
+window.addEventListener('load', () => {
+    const cfg = JSON.parse(localStorage.getItem('mbtx_cloudinary') || '{}');
+    if (cfg.cloudName && typeof CLOUDINARY_CONFIG !== 'undefined') {
+        CLOUDINARY_CONFIG.cloudName = cfg.cloudName;
+        CLOUDINARY_CONFIG.uploadPreset = cfg.uploadPreset;
+    }
+});
+
+
+
+function exportarBackupCompleto() {
+    const agora = new Date();
+    const timestamp = agora.toISOString().replace(/[:.]/g, '-').substring(0, 19);
+
+    const backup = {
+        versao: '1.0',
+        exportadoEm: agora.toLocaleString('pt-BR'),
+        totalLancamentos: db.length,
+        lancamentos: db,
+        contasBancos: contasBancos,
+        contasContabeis: contasContabeis,
+        fornecedores: fornecedoresCadastrados,
+        modelosRateio: modelosRateio
+    };
+
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'mobitex_backup_' + timestamp + '.json';
+    link.click();
+
+    alert('✅ Backup gerado com sucesso!\n\n📦 ' + db.length + ' lançamentos exportados.');
+}
+
 
     const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const link = document.createElement('a');
@@ -1657,22 +1851,37 @@ async function _finalizarSalvarEdicao() {
     // 1. Salva SEMPRE no localStorage (garantido, síncrono)
     try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) { console.error('localStorage error', e); }
 
-    // 2. Upload do anexo para Firebase Storage (se houver base64 novo)
-    if (window.fbUploadAnexo && anexoBase64 && anexoBase64.startsWith('data:')) {
+    // 2. Upload do anexo para Cloudinary (se for base64 novo)
+    if (typeof cloudinaryUpload === 'function' && anexoBase64 && anexoBase64.startsWith('data:')) {
         const idAtual = document.getElementById('editId').value;
-        // Acha o item recém salvo no db
         const item = db.find(t => String(t.id) == String(idAtual));
         if (item) {
-            const url = await fbUploadAnexo(item.id, anexoBase64);
+            const url = await cloudinaryUpload(anexoBase64, item.id);
             if (url) {
-                // Substitui base64 pela URL do Storage no db
-                item.anexo = url;
+                // Se faz parte de um grupo (fixo/parcelado), propaga a URL para todos do grupo
+                if (item.idGrupo) {
+                    db.forEach(t => { if (t.idGrupo === item.idGrupo) t.anexo = url; });
+                } else {
+                    item.anexo = url;
+                }
                 try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) {}
             }
         }
+    } else if (!anexoBase64 && _dadosEdicaoPendente === null) {
+        // Anexo foi removido: limpa URL do Cloudinary no item (e grupo se for fixo)
+        const idAtual = document.getElementById('editId').value;
+        const item = db.find(t => String(t.id) == String(idAtual));
+        if (item && item.nfAnexada === 'nao') {
+            if (item.idGrupo) {
+                db.forEach(t => { if (t.idGrupo === item.idGrupo) t.anexo = ''; });
+            } else {
+                item.anexo = '';
+            }
+            try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) {}
+        }
     }
 
-    // 3. Sincroniza Firestore em segundo plano
+    // 3. Sincroniza Firestore
     if (window.fbSaveList) fbSaveList('lancamentos', db).catch(e => console.error('Firebase sync error', e));
     if (typeof atualizarSaldos === "function") atualizarSaldos();
     fecharModal('modalLanc');
@@ -2121,12 +2330,13 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
 
     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
 
-    // Upload do anexo para Firebase Storage e depois salva no Firestore
-    if (window.fbUploadAnexo && anexoBase64 && anexoBase64.startsWith('data:')) {
-        const itensNovos = db.slice(-qtdParcelas);
+    // Upload do anexo para Cloudinary — faz UMA vez e distribui a URL para todas as parcelas
+    if (typeof cloudinaryUpload === 'function' && anexoBase64 && anexoBase64.startsWith('data:')) {
+        const itensNovos = isParcelado ? db.slice(-qtdParcelas) : db.slice(-1);
         if (itensNovos.length > 0) {
-            fbUploadAnexo(itensNovos[0].id, anexoBase64).then(url => {
+            cloudinaryUpload(anexoBase64, itensNovos[0].id).then(url => {
                 if (url) {
+                    // Aplica a mesma URL em todas as parcelas do grupo (não replica base64)
                     itensNovos.forEach(it => { it.anexo = url; });
                     localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
                 }
@@ -2134,6 +2344,16 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
             });
         }
     } else {
+        // Sem anexo novo: garante que parcelas fixas NÃO herdam base64 de uma anterior
+        if (isParcelado) {
+            const itensNovos = db.slice(-qtdParcelas);
+            // Se o primeiro item não tem URL do Cloudinary, limpa anexo de todos (evita base64 replicado)
+            const primeiroAnexo = itensNovos[0]?.anexo || '';
+            if (primeiroAnexo.startsWith('data:')) {
+                itensNovos.forEach(it => { it.anexo = ''; });
+                localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+            }
+        }
         if (window.fbSaveList) fbSaveList('lancamentos', db);
     }
 
@@ -2207,6 +2427,31 @@ function abrirArquivoEmTelaCheia() {
     abrirModal('modalVisualizarArquivo');
 }
 </script>
+<!-- Modal Configuração Cloudinary -->
+<div id="modalCloudinary" class="modal" style="z-index:9999;">
+  <div class="modal-content" style="max-width:420px;">
+    <h3 style="margin-top:0;">☁️ Configuração Cloudinary</h3>
+    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">
+      Preencha com os dados do seu painel em <b>cloudinary.com</b>
+    </p>
+    <label class="label-f">CLOUD NAME</label>
+    <input type="text" id="cl_cloudName" placeholder="ex: meuapp123" style="width:100%;margin-bottom:10px;">
+    <label class="label-f">UPLOAD PRESET (sem assinatura)</label>
+    <input type="text" id="cl_preset" placeholder="ex: mobitex_preset" style="width:100%;margin-bottom:6px;">
+    <small style="color:#999;display:block;margin-bottom:15px;">
+      Crie em: Settings → Upload → Add upload preset → <b>Unsigned</b> → Salvar
+    </small>
+    <div style="display:flex;gap:10px;margin-top:10px;">
+      <button onclick="salvarConfigCloudinary()" style="flex:2;background:var(--primary);color:white;border:none;padding:14px;border-radius:10px;font-weight:bold;cursor:pointer;">
+        💾 SALVAR
+      </button>
+      <button onclick="fecharModal('modalCloudinary')" style="flex:1;background:#eee;border:none;padding:14px;border-radius:10px;cursor:pointer;">
+        CANCELAR
+      </button>
+    </div>
+    <div id="clStatus" style="margin-top:10px;font-size:0.8rem;text-align:center;"></div>
+  </div>
+</div>
 <div id="modalListagem" class="modal">
     <div class="modal-content">
         <h3 id="tituloLista">Detalhes</h3>
