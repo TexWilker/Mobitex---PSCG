@@ -9,6 +9,8 @@
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
       import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+      import { getStorage, ref, uploadString, getDownloadURL, deleteObject }
+        from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
       const firebaseConfig = {
         apiKey: "AIzaSyBx2aaNJuDfPBggUKhSvkibAHhsgUuol-U",
@@ -23,6 +25,7 @@
       const _app = initializeApp(firebaseConfig);
       const _db  = getFirestore(_app);
       const _auth = getAuth(_app);
+      const _storage = getStorage(_app);
 
       // Monitora estado de autenticação
       onAuthStateChanged(_auth, async (user) => {
@@ -65,19 +68,26 @@
 
       window.fbSaveList = async function(colecao, lista) {
         try {
-          const batch = writeBatch(_db);
-          const snap = await getDocs(collection(_db, colecao));
-          snap.docs.forEach(d => batch.delete(d.ref));
-          lista.forEach((item, i) => {
-            const id = (item && item.id) ? String(item.id) : String(i);
-            batch.set(doc(_db, colecao, id), JSON.parse(JSON.stringify(item)));
+          // Remove anexos em base64 (grandes demais); mantém URLs do Storage
+          const listaSemAnexo = lista.map(item => {
+            if (item.anexo && item.anexo.startsWith('data:')) {
+              const { anexo, ...resto } = item;
+              return resto;
+            }
+            return item;
           });
-          await batch.commit();
-          console.log('✅ Firebase: ' + colecao + ' salvo (' + lista.length + ' docs)');
+          // Limpa undefined/NaN que o Firestore rejeita
+          const listaLimpa = JSON.parse(JSON.stringify(listaSemAnexo));
+          await setDoc(doc(_db, colecao, '__lista__'), {
+            __data: JSON.stringify(listaLimpa),
+            __ts: Date.now()
+          });
+          console.log('✅ Firebase: ' + colecao + ' salvo (' + listaLimpa.length + ' itens)');
+          if(window.mostrarSucessoFb) mostrarSucessoFb();
         } catch(e) {
-          console.error('❌ fbSaveList erro:', e);
+          console.error('❌ fbSaveList erro:', e.code, e.message);
           window._fbErro = e.message;
-          mostrarErroFb(e.message);
+          mostrarErroFb('Erro ao salvar: ' + (e.code || e.message));
         }
       };
 
@@ -94,12 +104,13 @@
 
       window.fbLoadCollection = async function(colecao) {
         try {
-          const snap = await getDocs(collection(_db, colecao));
-          console.log('✅ Firebase: ' + colecao + ' carregado (' + snap.docs.length + ' docs)');
-          return snap.docs.map(d => d.data());
+          const snap = await getDoc(doc(_db, colecao, '__lista__'));
+          if (!snap.exists()) { console.log('Firebase: ' + colecao + ' vazio'); return null; }
+          const lista = JSON.parse(snap.data().__data);
+          console.log('✅ Firebase: ' + colecao + ' carregado (' + lista.length + ' itens)');
+          return lista;
         } catch(e) {
-          console.error('❌ fbLoadCollection erro:', e);
-          window._fbErro = e.message;
+          console.error('❌ fbLoadCollection erro:', e.code, e.message);
           return null;
         }
       };
@@ -113,6 +124,29 @@
           console.error('❌ fbLoadObject erro:', e);
           return null;
         }
+      };
+
+      // Upload de anexo para Firebase Storage
+      window.fbUploadAnexo = async function(itemId, base64Data) {
+        if (!base64Data || !_storage) return null;
+        try {
+          const storageRef = ref(_storage, 'anexos/' + String(itemId));
+          await uploadString(storageRef, base64Data, 'data_url');
+          const url = await getDownloadURL(storageRef);
+          console.log('✅ Anexo enviado ao Storage:', itemId);
+          return url;
+        } catch(e) {
+          console.error('❌ fbUploadAnexo erro:', e.code, e.message);
+          mostrarErroFb('Erro no anexo: ' + (e.code || e.message));
+          return null;
+        }
+      };
+
+      window.fbDeleteAnexo = async function(itemId) {
+        if (!_storage) return;
+        try {
+          await deleteObject(ref(_storage, 'anexos/' + String(itemId)));
+        } catch(e) { /* ignora se não existir */ }
       };
 
       window._fbReady = true;
@@ -613,7 +647,17 @@ window.sincronizarFirebase = async function sincronizarFirebase() {
     try {
         const fbDb = await fbLoadCollection('lancamentos');
         if (fbDb && fbDb.length > 0) {
-            db = fbDb;
+            // Dados vêm do Firestore com URLs do Storage (não base64)
+            // Preserva base64 local para itens que ainda não foram enviados ao Storage
+            const localDb = JSON.parse(localStorage.getItem('mbtx_v82_db') || '[]');
+            const localAnexos = {};
+            localDb.forEach(item => {
+                if (item.anexo && item.anexo.startsWith('data:')) localAnexos[String(item.id)] = item.anexo;
+            });
+            db = fbDb.map(item => {
+                const local = localAnexos[String(item.id)];
+                return (local && !item.anexo) ? { ...item, anexo: local } : item;
+            });
             localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
         }
 
@@ -1609,10 +1653,26 @@ function confirmarSalvarEdicao(modo) {
     _finalizarSalvarEdicao();
 }
 
-function _finalizarSalvarEdicao() {
+async function _finalizarSalvarEdicao() {
     // 1. Salva SEMPRE no localStorage (garantido, síncrono)
     try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) { console.error('localStorage error', e); }
-    // 2. Sincroniza Firebase em segundo plano
+
+    // 2. Upload do anexo para Firebase Storage (se houver base64 novo)
+    if (window.fbUploadAnexo && anexoBase64 && anexoBase64.startsWith('data:')) {
+        const idAtual = document.getElementById('editId').value;
+        // Acha o item recém salvo no db
+        const item = db.find(t => String(t.id) == String(idAtual));
+        if (item) {
+            const url = await fbUploadAnexo(item.id, anexoBase64);
+            if (url) {
+                // Substitui base64 pela URL do Storage no db
+                item.anexo = url;
+                try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) {}
+            }
+        }
+    }
+
+    // 3. Sincroniza Firestore em segundo plano
     if (window.fbSaveList) fbSaveList('lancamentos', db).catch(e => console.error('Firebase sync error', e));
     if (typeof atualizarSaldos === "function") atualizarSaldos();
     fecharModal('modalLanc');
@@ -2059,9 +2119,25 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
         db.push(novoItem);
     }
 
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
-    anexoBase64 = "";
+    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
 
+    // Upload do anexo para Firebase Storage e depois salva no Firestore
+    if (window.fbUploadAnexo && anexoBase64 && anexoBase64.startsWith('data:')) {
+        const itensNovos = db.slice(-qtdParcelas);
+        if (itensNovos.length > 0) {
+            fbUploadAnexo(itensNovos[0].id, anexoBase64).then(url => {
+                if (url) {
+                    itensNovos.forEach(it => { it.anexo = url; });
+                    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+                }
+                if (window.fbSaveList) fbSaveList('lancamentos', db);
+            });
+        }
+    } else {
+        if (window.fbSaveList) fbSaveList('lancamentos', db);
+    }
+
+    anexoBase64 = "";
     atualizarSaldos();
     fecharModal('modalLanc');
     alert(isParcelado ? `${qtdParcelas} parcelas criadas com sucesso!` : "Lançamento salvo com sucesso!");
@@ -2217,15 +2293,30 @@ function abrirArquivoEmTelaCheia() {
 
 <script>
 function mostrarErroFb(msg) {
-    // Mostra erro Firebase sem travar o app
-    let div = document.getElementById('fbErroBar');
+    let div = document.getElementById('fbStatusBar');
     if (!div) {
         div = document.createElement('div');
-        div.id = 'fbErroBar';
-        div.style.cssText = 'position:fixed;bottom:70px;left:0;right:0;background:#e74c3c;color:white;padding:10px 16px;font-size:0.8rem;z-index:8000;display:flex;justify-content:space-between;align-items:center;';
+        div.id = 'fbStatusBar';
+        div.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:8px 16px;font-size:0.8rem;z-index:9998;display:flex;justify-content:space-between;align-items:center;font-weight:bold;';
         document.body.appendChild(div);
     }
-    div.innerHTML = '⚠️ Erro Firebase: ' + msg + ' <button onclick="this.parentElement.remove()" style="background:none;border:1px solid white;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;">X</button>';
+    div.style.background = '#e74c3c';
+    div.style.color = 'white';
+    div.innerHTML = '⚠️ Firebase: ' + msg + ' — dados salvos localmente apenas. <button onclick="this.parentElement.style.display=\'none\';" style="background:none;border:1px solid white;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;margin-left:10px;">X</button>';
+}
+
+function mostrarSucessoFb() {
+    let div = document.getElementById('fbStatusBar');
+    if (!div) {
+        div = document.createElement('div');
+        div.id = 'fbStatusBar';
+        div.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:8px 16px;font-size:0.8rem;z-index:9998;display:flex;justify-content:space-between;align-items:center;font-weight:bold;';
+        document.body.appendChild(div);
+    }
+    div.style.background = '#27ae60';
+    div.style.color = 'white';
+    div.innerHTML = '✅ Sincronizado com Firebase';
+    setTimeout(() => { if(div) div.style.display = 'none'; }, 3000);
 }
 </script>
 
