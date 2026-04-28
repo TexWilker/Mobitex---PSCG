@@ -911,9 +911,15 @@ function visualizarAnexo() {
     const container = document.getElementById('visualizadorFull');
     container.innerHTML = '';
     const isPdf = src.includes("application/pdf") || src.toLowerCase().includes(".pdf");
-    container.innerHTML = isPdf
-        ? `<embed src="${src}" type="application/pdf" width="100%" height="100%">`
-        : `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+    if (isPdf && src.startsWith('http')) {
+        // Abre PDF via Google Docs Viewer (não exige autenticação)
+        const viewer = 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(src);
+        container.innerHTML = `<iframe src="${viewer}" width="100%" height="100%" style="border:none;"></iframe>`;
+    } else if (isPdf) {
+        container.innerHTML = `<embed src="${src}" type="application/pdf" width="100%" height="100%">`;
+    } else {
+        container.innerHTML = `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+    }
     document.getElementById('modalVisualizarArquivo').style.display = 'flex';
 }
 function removerAnexo() {
@@ -2190,9 +2196,14 @@ function abrirArquivoEmTelaCheia() {
     }
     const visualizador = document.getElementById('visualizadorFull');
     const isPdf = src.includes("application/pdf") || src.toLowerCase().includes(".pdf");
-    visualizador.innerHTML = isPdf
-        ? `<iframe src="${src}" width="100%" height="100%" style="border:none;"></iframe>`
-        : `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+    if (isPdf && src.startsWith('http')) {
+        const viewer = 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(src);
+        visualizador.innerHTML = `<iframe src="${viewer}" width="100%" height="100%" style="border:none;"></iframe>`;
+    } else if (isPdf) {
+        visualizador.innerHTML = `<iframe src="${src}" width="100%" height="100%" style="border:none;"></iframe>`;
+    } else {
+        visualizador.innerHTML = `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+    }
     abrirModal('modalVisualizarArquivo');
 }
 </script>
@@ -2408,7 +2419,6 @@ async function cloudinaryUpload(base64Data, itemId) {
         formData.append('file', base64Data);
         formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
         formData.append('public_id', 'mobitex_anexo_' + String(itemId));
-        formData.append('access_mode', 'public');
         const res = await fetch(
             'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CONFIG.cloudName + '/auto/upload',
             { method: 'POST', body: formData }
