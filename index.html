@@ -715,9 +715,11 @@ window.sincronizarFirebase = async function sincronizarFirebase() {
         if (fbRateio) modelosRateio = fbRateio;
 
         const fbCloudinary = await fbLoadObject('config', 'cloudinary');
-        if (fbCloudinary && typeof CLOUDINARY_CONFIG !== 'undefined') {
-            CLOUDINARY_CONFIG.cloudName = fbCloudinary.cloudName;
-            CLOUDINARY_CONFIG.uploadPreset = fbCloudinary.uploadPreset;
+        // Carrega token do Google Drive salvo
+        const fbGdrive = await fbLoadObject('config', 'gdrive');
+        if (fbGdrive && fbGdrive.token) {
+            GDRIVE_TOKEN = fbGdrive.token;
+            console.log('✅ Google Drive: token carregado');
         }
 
         // Atualiza a tela com os dados do Firebase
@@ -902,7 +904,7 @@ function previewArquivo() {
     };
     reader.readAsDataURL(file);
 }
-async function visualizarAnexo() {
+function visualizarAnexo() {
     const src = anexoUrl || anexoBase64;
     if (!src) {
         alert("Nenhum arquivo para visualizar.");
@@ -911,53 +913,16 @@ async function visualizarAnexo() {
     const container = document.getElementById('visualizadorFull');
     container.innerHTML = '';
     const isPdf = src.includes("application/pdf") || src.toLowerCase().includes(".pdf");
-
-    // Se for base64 local, exibe diretamente sem fetch
-    if (src.startsWith('data:')) {
-        if (isPdf) {
-            container.innerHTML = `<embed src="${src}" type="application/pdf" width="100%" height="100%">`;
-        } else {
-            container.innerHTML = `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
-        }
-        document.getElementById('modalVisualizarArquivo').style.display = 'flex';
-        return;
+    const isDrive = src.includes('drive.google.com');
+    if (isDrive || (isPdf && src.startsWith('http'))) {
+        // Drive URLs já são /preview — abre direto no iframe
+        const viewSrc = isDrive ? src : 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(src);
+        container.innerHTML = `<iframe src="${viewSrc}" width="100%" height="100%" style="border:none;" allow="autoplay"></iframe>`;
+    } else if (isPdf) {
+        container.innerHTML = `<embed src="${src}" type="application/pdf" width="100%" height="100%">`;
+    } else {
+        container.innerHTML = `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
     }
-
-    // Se for URL externa (Cloudinary), usa fetch para evitar bloqueio de Tracking Prevention
-    if (src.startsWith('http')) {
-        container.innerHTML = `<div style="text-align:center; color:#666; padding:40px;">⏳ Carregando documento...</div>`;
-        document.getElementById('modalVisualizarArquivo').style.display = 'flex';
-        if (isPdf) {
-            // PDFs externos: usa Google Docs Viewer (não sofre com Tracking Prevention)
-            const viewer = 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(src);
-            container.innerHTML = `<iframe src="${viewer}" width="100%" height="100%" style="border:none;"></iframe>`;
-            return;
-        }
-        // Imagens: fetch como blob para contornar o bloqueio
-        try {
-            const response = await fetch(src, { mode: 'cors' });
-            if (!response.ok) throw new Error('Erro HTTP ' + response.status);
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            const img = document.createElement('img');
-            img.src = blobUrl;
-            img.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain;';
-            container.innerHTML = '';
-            container.appendChild(img);
-        } catch(e) {
-            container.innerHTML = `
-                <div style="text-align:center; padding:40px;">
-                    <p style="color:#e74c3c; margin-bottom:15px;">⚠️ Não foi possível carregar inline.</p>
-                    <a href="${src}" target="_blank" style="background:var(--info); color:white; padding:12px 24px; border-radius:10px; text-decoration:none; font-weight:bold;">
-                        🔗 Abrir em nova aba
-                    </a>
-                </div>`;
-        }
-        return;
-    }
-
-    // Fallback genérico
-    container.innerHTML = `<iframe src="${src}" width="100%" height="100%" style="border:none;"></iframe>`;
     document.getElementById('modalVisualizarArquivo').style.display = 'flex';
 }
 function removerAnexo() {
@@ -2226,7 +2191,7 @@ function tratarArquivo(event) {
 
     function abrirModal(id) { document.getElementById(id).style.display = 'flex'; }
     function fecharModal(id) { document.getElementById(id).style.display = 'none'; }
-async function abrirArquivoEmTelaCheia() {
+function abrirArquivoEmTelaCheia() {
     const src = anexoUrl || anexoBase64;
     if (!src) {
         alert("Nenhum arquivo anexado para visualizar.");
@@ -2234,54 +2199,15 @@ async function abrirArquivoEmTelaCheia() {
     }
     const visualizador = document.getElementById('visualizadorFull');
     const isPdf = src.includes("application/pdf") || src.toLowerCase().includes(".pdf");
-
-    // Se for base64 local (ainda não foi para o Cloudinary), exibe diretamente
-    if (src.startsWith('data:')) {
-        if (isPdf) {
-            visualizador.innerHTML = `<iframe src="${src}" width="100%" height="100%" style="border:none;"></iframe>`;
-        } else {
-            visualizador.innerHTML = `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
-        }
-        abrirModal('modalVisualizarArquivo');
-        return;
+    const isDrive = src.includes('drive.google.com');
+    if (isDrive || (isPdf && src.startsWith('http'))) {
+        const viewSrc = isDrive ? src : 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(src);
+        visualizador.innerHTML = `<iframe src="${viewSrc}" width="100%" height="100%" style="border:none;" allow="autoplay"></iframe>`;
+    } else if (isPdf) {
+        visualizador.innerHTML = `<iframe src="${src}" width="100%" height="100%" style="border:none;"></iframe>`;
+    } else {
+        visualizador.innerHTML = `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
     }
-
-    // Se for URL externa (Cloudinary), faz fetch para evitar bloqueio de Tracking Prevention
-    if (src.startsWith('http')) {
-        visualizador.innerHTML = `<div style="text-align:center; color:#666; padding:40px;">⏳ Carregando documento...</div>`;
-        abrirModal('modalVisualizarArquivo');
-        try {
-            const response = await fetch(src, { mode: 'cors' });
-            if (!response.ok) throw new Error('Falha ao baixar o arquivo');
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            const isPdfBlob = blob.type.includes('pdf') || isPdf;
-            if (isPdfBlob) {
-                const viewer = 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(src);
-                visualizador.innerHTML = `<iframe src="${viewer}" width="100%" height="100%" style="border:none;"></iframe>`;
-            } else {
-                const img = document.createElement('img');
-                img.src = blobUrl;
-                img.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain;';
-                img.onload = () => {}; // mantém o blobUrl vivo
-                visualizador.innerHTML = '';
-                visualizador.appendChild(img);
-            }
-        } catch(e) {
-            // Fallback: tenta abrir diretamente em nova aba se o fetch falhar
-            visualizador.innerHTML = `
-                <div style="text-align:center; padding:40px;">
-                    <p style="color:#e74c3c; margin-bottom:15px;">⚠️ Não foi possível carregar o arquivo inline.</p>
-                    <a href="${src}" target="_blank" style="background:var(--info); color:white; padding:12px 24px; border-radius:10px; text-decoration:none; font-weight:bold;">
-                        🔗 Abrir em nova aba
-                    </a>
-                </div>`;
-        }
-        return;
-    }
-
-    // Fallback genérico
-    visualizador.innerHTML = `<iframe src="${src}" width="100%" height="100%" style="border:none;"></iframe>`;
     abrirModal('modalVisualizarArquivo');
 }
 </script>
@@ -2405,13 +2331,20 @@ function mostrarSucessoFb() {
 
 <!-- Modal Configuração Cloudinary -->
 <div id="modalCloudinary" class="modal" style="z-index:9999;">
-  <div class="modal-content" style="max-width:420px;">
-    <h3 style="margin-top:0;">&#9925; Configuracao Cloudinary</h3>
-    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">Preencha com os dados do seu painel em <b>cloudinary.com</b></p>
-    <label class="label-f">CLOUD NAME</label>
-    <input type="text" id="cl_cloudName" placeholder="ex: dsezhsbxe" style="width:100%;margin-bottom:10px;">
-    <label class="label-f">UPLOAD PRESET</label>
-    <input type="text" id="cl_preset" placeholder="ex: mbitex" style="width:100%;margin-bottom:6px;">
+  <div class="modal-content" style="max-width:460px;">
+    <h3 style="margin-top:0;">&#128288; Configurar Google Drive</h3>
+    <p style="font-size:0.82rem;color:#666;margin-bottom:10px;">
+      Para enviar anexos, informe um <b>Access Token</b> do Google com permissão ao Drive.<br>
+      <a href="https://developers.google.com/oauthplayground" target="_blank" style="color:var(--primary);">
+        &#128279; Gerar token no OAuth Playground
+      </a>
+    </p>
+    <p style="font-size:0.78rem;color:#888;margin-bottom:12px;">
+      No OAuth Playground: selecione <b>Drive API v3</b> → escopo 
+      <code>https://www.googleapis.com/auth/drive.file</code> → Authorize → Exchange code for tokens → copie o <b>Access token</b>.
+    </p>
+    <label class="label-f">ACCESS TOKEN</label>
+    <input type="password" id="cl_gdriveToken" placeholder="Cole o token aqui..." style="width:100%;margin-bottom:6px;">
     <div style="display:flex;gap:10px;margin-top:10px;">
       <button onclick="salvarConfigCloudinary()" style="flex:2;background:var(--primary);color:white;border:none;padding:14px;border-radius:10px;font-weight:bold;cursor:pointer;">SALVAR</button>
       <button onclick="fecharModal('modalCloudinary')" style="flex:1;background:#eee;border:none;padding:14px;border-radius:10px;cursor:pointer;">CANCELAR</button>
@@ -2421,26 +2354,22 @@ function mostrarSucessoFb() {
 </div>
 <script>
 function abrirConfigCloudinary() {
-    if (CLOUDINARY_CONFIG.cloudName) document.getElementById('cl_cloudName').value = CLOUDINARY_CONFIG.cloudName;
-    if (CLOUDINARY_CONFIG.uploadPreset) document.getElementById('cl_preset').value = CLOUDINARY_CONFIG.uploadPreset;
+    if (GDRIVE_TOKEN) document.getElementById('cl_gdriveToken').value = GDRIVE_TOKEN;
     document.getElementById('modalCloudinary').style.display = 'flex';
 }
 function salvarConfigCloudinary() {
-    var cloudName = document.getElementById('cl_cloudName').value.trim();
-    var uploadPreset = document.getElementById('cl_preset').value.trim();
-    if (!cloudName || !uploadPreset) {
-        document.getElementById('clStatus').innerHTML = '<span style="color:red;">Preencha os campos.</span>'; return;
+    const token = document.getElementById('cl_gdriveToken').value.trim();
+    if (!token) {
+        document.getElementById('clStatus').innerHTML = '<span style="color:red;">Cole o Access Token.</span>';
+        return;
     }
-    if (typeof CLOUDINARY_CONFIG !== 'undefined') {
-        CLOUDINARY_CONFIG.cloudName = cloudName;
-        CLOUDINARY_CONFIG.uploadPreset = uploadPreset;
-    }
-    // Salva no Firebase
-    if (window.fbSaveObject) fbSaveObject('config', 'cloudinary', {cloudName, uploadPreset});
-    document.getElementById('clStatus').innerHTML = '<span style="color:green;">Salvo!</span>';
-    setTimeout(function(){ fecharModal('modalCloudinary'); }, 1000);
+    GDRIVE_TOKEN = token;
+    // Salva no Firebase para persistir
+    if (window.fbSaveObject) fbSaveObject('config', 'gdrive', { token });
+    document.getElementById('clStatus').innerHTML = '<span style="color:green;">✅ Token salvo!</span>';
+    setTimeout(() => fecharModal('modalCloudinary'), 1000);
 }
-// Cloudinary config loaded from Firebase on sync
+// Carrega token salvo do Firebase no sync
 </script>
 
 <script>
@@ -2485,31 +2414,50 @@ function fazerLogout() {
 
 <datalist id="listaSugestoesFornecedores"></datalist>
 <script>
-const CLOUDINARY_CONFIG = {
-    cloudName:    'dsezhsbxe',
-    uploadPreset: 'mbitex'
-};
+// ─── GOOGLE DRIVE UPLOAD ─────────────────────────────────────────────────────
+let GDRIVE_TOKEN = '';
 
 async function cloudinaryUpload(base64Data, itemId) {
     if (!base64Data || !base64Data.startsWith('data:')) return null;
+    if (!GDRIVE_TOKEN) {
+        mostrarErroFb('Google Drive não configurado. Clique em ☁️ para informar o token.');
+        return null;
+    }
     try {
-        const formData = new FormData();
-        formData.append('file', base64Data);
-        formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
-        formData.append('public_id', 'mobitex_anexo_' + String(itemId));
+        console.log('⬆️ Enviando para Google Drive...');
+        const [meta, b64] = base64Data.split(',');
+        const mime = meta.match(/:(.*?);/)[1];
+        const bytes = atob(b64);
+        const arr = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        const blob = new Blob([arr], { type: mime });
+        const ext = mime.includes('pdf') ? 'pdf' : (mime.split('/')[1] || 'bin');
+        const filename = 'mobitex_anexo_' + String(itemId) + '.' + ext;
+        const metaBlob = new Blob([JSON.stringify({ name: filename })], { type: 'application/json' });
+        const form = new FormData();
+        form.append('metadata', metaBlob);
+        form.append('file', blob);
         const res = await fetch(
-            'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CONFIG.cloudName + '/auto/upload',
-            { method: 'POST', body: formData }
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+            { method: 'POST', headers: { 'Authorization': 'Bearer ' + GDRIVE_TOKEN }, body: form }
         );
         const data = await res.json();
-        if (data.secure_url) {
-            console.log('Cloudinary OK:', data.secure_url);
-            return data.secure_url;
+        if (!data.id) {
+            const msg = data.error ? data.error.message : JSON.stringify(data);
+            mostrarErroFb('Drive erro: ' + msg);
+            return null;
         }
-        mostrarErroFb('Cloudinary: ' + (data.error ? data.error.message : 'Erro'));
-        return null;
+        // Torna público
+        await fetch('https://www.googleapis.com/drive/v3/files/' + data.id + '/permissions', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + GDRIVE_TOKEN, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'reader', type: 'anyone' })
+        });
+        const url = 'https://drive.google.com/file/d/' + data.id + '/preview';
+        console.log('✅ Google Drive OK:', url);
+        return url;
     } catch(e) {
-        mostrarErroFb('Cloudinary: ' + e.message);
+        mostrarErroFb('Drive: ' + e.message);
         return null;
     }
 }
