@@ -63,21 +63,52 @@
 
       window._fbErro = null;
 
+      // ─── HELPERS ────────────────────────────────────────────────────────────
+      function _limparItem(item) {
+        // Remove base64 e limpa undefined/NaN que o Firestore rejeita
+        const copia = Object.assign({}, item);
+        if (copia.anexo && copia.anexo.startsWith('data:')) delete copia.anexo;
+        return JSON.parse(JSON.stringify(copia));
+      }
+
+      // ─── SALVAR UM ÚNICO LANÇAMENTO ─────────────────────────────────────────
+      // Usa: lancamentos/{id} com os campos diretos do item
+      window.fbSaveItem = async function(item) {
+        try {
+          const limpo = _limparItem(item);
+          await setDoc(doc(_db, 'lancamentos', String(item.id)), limpo);
+          console.log('✅ Firebase: lancamento ' + item.id + ' salvo');
+          if(window.mostrarSucessoFb) mostrarSucessoFb();
+        } catch(e) {
+          console.error('❌ fbSaveItem erro:', e.code, e.message);
+          window._fbErro = e.message;
+          mostrarErroFb('Erro ao salvar: ' + (e.code || e.message));
+        }
+      };
+
+      // ─── SALVAR MÚLTIPLOS ITENS (batch, máx 500 por vez) ───────────────────
       window.fbSaveList = async function(colecao, lista) {
         try {
-          // Remove anexos em base64 (grandes demais); mantém URLs do Storage
-          const listaSemAnexo = lista.map(item => {
-            if (item.anexo && item.anexo.startsWith('data:')) {
-              const { anexo, ...resto } = item;
-              return resto;
+          // Se for lancamentos, salva item por item via batch (otimizado)
+          if (colecao === 'lancamentos') {
+            const BATCH_SIZE = 400;
+            for (let i = 0; i < lista.length; i += BATCH_SIZE) {
+              const batch = writeBatch(_db);
+              lista.slice(i, i + BATCH_SIZE).forEach(item => {
+                const limpo = _limparItem(item);
+                batch.set(doc(_db, 'lancamentos', String(item.id)), limpo);
+              });
+              await batch.commit();
             }
-            return item;
-          });
-          // Limpa undefined/NaN que o Firestore rejeita
-          const listaLimpa = JSON.parse(JSON.stringify(listaSemAnexo));
-          await setDoc(doc(_db, colecao, '_lista'), {
-            __data: JSON.stringify(listaLimpa),
-            __ts: Date.now()
+            console.log('✅ Firebase: lancamentos salvos (' + lista.length + ' itens, batch)');
+            if(window.mostrarSucessoFb) mostrarSucessoFb();
+            return;
+          }
+          // Para outras coleções (config etc), mantém comportamento original
+          const listaLimpa = JSON.parse(JSON.stringify(lista));
+          await setDoc(doc(_db, colecao, '_data_'), {
+            _items: JSON.stringify(listaLimpa),
+            _ts: Date.now()
           });
           console.log('✅ Firebase: ' + colecao + ' salvo (' + listaLimpa.length + ' itens)');
           if(window.mostrarSucessoFb) mostrarSucessoFb();
@@ -85,6 +116,16 @@
           console.error('❌ fbSaveList erro:', e.code, e.message);
           window._fbErro = e.message;
           mostrarErroFb('Erro ao salvar: ' + (e.code || e.message));
+        }
+      };
+
+      // ─── EXCLUIR UM LANÇAMENTO ──────────────────────────────────────────────
+      window.fbDeleteItem = async function(itemId) {
+        try {
+          await deleteDoc(doc(_db, 'lancamentos', String(itemId)));
+          console.log('✅ Firebase: lancamento ' + itemId + ' excluído');
+        } catch(e) {
+          console.error('❌ fbDeleteItem erro:', e.code, e.message);
         }
       };
 
@@ -99,11 +140,41 @@
         }
       };
 
+      // ─── CARREGAR TODOS OS LANÇAMENTOS ──────────────────────────────────────
+      // Agora lê cada doc individualmente (coleção lancamentos/{id})
+      // com fallback para o formato antigo (_data_) na primeira carga
       window.fbLoadCollection = async function(colecao) {
         try {
-          const snap = await getDoc(doc(_db, colecao, '_lista'));
+          if (colecao === 'lancamentos') {
+            // Tenta o novo formato: coleção com docs individuais
+            const snap = await getDocs(collection(_db, 'lancamentos'));
+            // Filtra o doc legado _data_ caso ainda exista
+            const itens = snap.docs
+              .filter(d => d.id !== '_data_')
+              .map(d => d.data());
+            if (itens.length > 0) {
+              console.log('✅ Firebase: lancamentos carregado (' + itens.length + ' itens, novo formato)');
+              return itens;
+            }
+            // Fallback: formato antigo (lista em _data_)
+            const legado = await getDoc(doc(_db, 'lancamentos', '_data_'));
+            if (legado.exists()) {
+              const lista = JSON.parse(legado.data()._items);
+              console.log('⚠️ Firebase: lancamentos no formato legado (' + lista.length + ' itens) — migrando...');
+              // Migra automaticamente para o novo formato
+              if (lista.length > 0 && window.fbSaveList) {
+                await fbSaveList('lancamentos', lista);
+                console.log('✅ Migração concluída!');
+              }
+              return lista;
+            }
+            console.log('Firebase: lancamentos vazio');
+            return null;
+          }
+          // Outras coleções (config): formato antigo mantido
+          const snap = await getDoc(doc(_db, colecao, '_data_'));
           if (!snap.exists()) { console.log('Firebase: ' + colecao + ' vazio'); return null; }
-          const lista = JSON.parse(snap.data().__data);
+          const lista = JSON.parse(snap.data()._items);
           console.log('✅ Firebase: ' + colecao + ' carregado (' + lista.length + ' itens)');
           return lista;
         } catch(e) {
@@ -128,8 +199,6 @@
       console.log('🔥 Firebase inicializado: mobitex-pscg');
     </script>
 
-    <!-- SheetJS para leitura de .xlsx -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MobiTex PSCG</title>
     <style>
@@ -205,7 +274,7 @@
         .label-f { font-size: 0.7rem; font-weight: bold; color: var(--dark); margin: 10px 0 2px 0; display: block; }
         
         .rateio-box { background: #f9f9f9; padding: 12px; border-radius: 15px; border: 1px dashed #ccc; margin: 10px 0; }
-        ./* Ajuste para as linhas de rateio ficarem em colunas organizadas */
+        /* Ajuste para as linhas de rateio ficarem em colunas organizadas */
 .rateio-linha { 
     display: grid; 
     grid-template-columns: 1fr 65px 85px 30px; /* Nome, %, Valor e Botão X */
@@ -352,7 +421,7 @@
     📥
 </button>
 
-<input type="file" id="importadorCSV" style="display:none" accept=".xlsx,.csv" onchange="processarPlanilha(event)">
+<input type="file" id="importadorCSV" style="display:none" accept=".csv" onchange="processarPlanilha(event)">
 <button class="btn-export btn-sap" onclick="exportarPlanilhaPorMes()" title="Exportar SAP">
     📋
 </button>
@@ -463,7 +532,7 @@
         
         <input type="text" id="fornecedor" list="listaSugestoesFornecedores" oninput="vincularIdFornecedor(this.value)" style="width: 100%;">
 
-        <datalist id="listaSugestoesFornecedores"></datalist>
+        
     </div>
   
     <div class="full">
@@ -587,22 +656,17 @@
 </div>
 
    <script>
-    // 1. INICIALIZAÇÃO E PERSISTÊNCIA
-    let anexoBase64 = "";
-    let indexEdicaoConfig = null; // null significa que estamos criando um novo
-    let fornecedoresCadastrados = JSON.parse(localStorage.getItem('mbtx_v82_fornecedores')) || [];
-    let db = JSON.parse(localStorage.getItem('mbtx_v82_db')) || [];
-    let contasBancos = JSON.parse(localStorage.getItem('mbtx_v82_bancos')) || ["Caixa", "Banco"];
-    let contasContabeis = JSON.parse(localStorage.getItem('mbtx_v82_cc')) || ["Suprimentos", "Logística", "Pessoal", "Infra"];
+    // 1. INICIALIZAÇÃO E PERSISTÊNCIA (100% Firebase - sem localStorage)
+    let anexoBase64 = "";      // apenas temporário em memória, nunca persiste
+    let anexoUrl = "";         // URL Cloudinary do item em edição
+    let indexEdicaoConfig = null;
+    let fornecedoresCadastrados = [];
+    let db = [];
+    let contasBancos = ["Caixa", "Banco"];
+    let contasContabeis = ["Suprimentos", "Logística", "Pessoal", "Infra"];
     let abaAtivaConfig = 'bancos';
-    let modelosRateio = JSON.parse(localStorage.getItem('mbtx_modelos_rateio')) || {};
-    let lancamentoTemporarioParaSalvar = null; // Variável global para guardar os dados temporariamente
-
-
-function _lsSaveGlobal(key, val) {
-    try { localStorage.setItem(key, typeof val === 'string' ? val : JSON.stringify(val)); }
-    catch(e) { console.error('localStorage failed for ' + key, e); }
-}
+    let modelosRateio = {};
+    let lancamentoTemporarioParaSalvar = null;
    window.onload = () => {
     const mesAtual = new Date().toISOString().substring(0, 7);
     const fMes = document.getElementById('filtroMes');
@@ -625,41 +689,36 @@ window.sincronizarFirebase = async function sincronizarFirebase() {
     }
 
     if (!window.fbLoadCollection) {
-        console.warn('Firebase não carregou, usando dados locais.');
+        console.warn('Firebase não carregou.');
         return;
     }
 
     try {
+        // Carrega lançamentos do Firebase
         const fbDb = await fbLoadCollection('lancamentos');
         if (fbDb && fbDb.length > 0) {
-            // Preserva base64 local para itens que ainda não foram enviados ao Storage
-            const localDb = JSON.parse(localStorage.getItem('mbtx_v82_db') || '[]');
-            const localAnexos = {};
-            localDb.forEach(item => {
-                if (item.anexo && item.anexo.startsWith('data:')) localAnexos[String(item.id)] = item.anexo;
-            });
-            const fbMapped = fbDb.map(item => {
-                const local = localAnexos[String(item.id)];
-                return (local && !item.anexo) ? { ...item, anexo: local } : item;
-            });
-            // ⚠️ Merge: mantém registros locais que ainda não chegaram ao Firebase
-            const fbIds = new Set(fbDb.map(r => String(r.id)));
-            const localOnly = localDb.filter(r => !fbIds.has(String(r.id)));
-            db = [...fbMapped, ...localOnly];
-            localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
+            db = fbDb.filter(item => item && item.id && item.data);
+            console.log('✅ ' + db.length + ' lançamentos carregados do Firebase');
         }
 
+        // Carrega configurações do Firebase
         const fbBancos = await fbLoadObject('config', 'bancos');
-        if (fbBancos) { contasBancos = fbBancos; localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); }
+        if (fbBancos) contasBancos = fbBancos;
 
         const fbCC = await fbLoadObject('config', 'contas');
-        if (fbCC) { contasContabeis = fbCC; localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); }
+        if (fbCC) contasContabeis = fbCC;
 
         const fbFornecedores = await fbLoadObject('config', 'fornecedores');
-        if (fbFornecedores) { fornecedoresCadastrados = fbFornecedores; localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); }
+        if (fbFornecedores) fornecedoresCadastrados = fbFornecedores;
 
         const fbRateio = await fbLoadObject('config', 'modelosRateio');
-        if (fbRateio) { modelosRateio = fbRateio; localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); }
+        if (fbRateio) modelosRateio = fbRateio;
+
+        const fbCloudinary = await fbLoadObject('config', 'cloudinary');
+        if (fbCloudinary && typeof CLOUDINARY_CONFIG !== 'undefined') {
+            CLOUDINARY_CONFIG.cloudName = fbCloudinary.cloudName;
+            CLOUDINARY_CONFIG.uploadPreset = fbCloudinary.uploadPreset;
+        }
 
         // Atualiza a tela com os dados do Firebase
         popularSelects();
@@ -685,27 +744,16 @@ function vincularIdFornecedor(nomeDigitado) {
     }
 }
 function buscarFornecedor(valor) {
-    // 1. Pega a lista de fornecedores que está salva nas suas configurações
-    const fornecedoresCadastrados = JSON.parse(localStorage.getItem('mbtx_v82_config_fornecedores') || '[]');
     const datalist = document.getElementById('listaSugestoesFornecedores');
     const campoId = document.getElementById('idFornecedor');
-
-    // 2. Limpa e alimenta o datalist com sugestões
     datalist.innerHTML = '';
     fornecedoresCadastrados.forEach(f => {
         let option = document.createElement('option');
         option.value = f.nome;
         datalist.appendChild(option);
     });
-
-    // 3. Verifica se o nome digitado existe na lista para puxar o ID
-    const fornecedorEncontrado = fornecedoresCadastrados.find(f => f.nome.toLowerCase() === valor.toLowerCase());
-    
-    if (fornecedorEncontrado) {
-        campoId.value = fornecedorEncontrado.id; // Preenche o ID automaticamente
-    } else {
-        campoId.value = ''; // Limpa o ID se você digitar um nome novo
-    }
+    const encontrado = fornecedoresCadastrados.find(f => f.nome.toLowerCase() === valor.toLowerCase());
+    campoId.value = encontrado ? encontrado.idFornecedor : '';
 }
 function popularDatalistFornecedores() {
     const datalist = document.getElementById('listaSugestoesFornecedores');
@@ -750,146 +798,80 @@ function processarPlanilha(event) {
     const arquivo = event.target.files[0];
     if (!arquivo) return;
 
-    const nome = arquivo.name.toLowerCase();
+    const leitor = new FileReader();
+    leitor.onload = function(e) {
+        try {
+            let conteudo = e.target.result;
 
-    if (nome.endsWith('.xlsx') || nome.endsWith('.xls')) {
-        // ── Importação .xlsx via SheetJS ─────────────────────────────────────
-        const leitor = new FileReader();
-        leitor.onload = async function(e) {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                const primeiraAba = workbook.SheetNames[0];
-                const planilha = workbook.Sheets[primeiraAba];
+            // Passo 1: Remover quebras de linha dentro de aspas (essencial para não dar erro técnico)
+            conteudo = conteudo.replace(/"([^"]*)"/g, (m, p1) => p1.replace(/\r?\n|\r/g, " "));
 
-                const linhas = XLSX.utils.sheet_to_json(planilha, { header: 1, defval: '' });
+            const linhas = conteudo.split(/\r?\n/);
+            let contagem = 0;
+            const novasEntradas = [];
 
-                if (linhas.length < 2) { alert('Planilha vazia ou sem dados.'); return; }
+            for (let i = 1; i < linhas.length; i++) {
+                let texto = linhas[i].trim();
+                if (!texto || texto.split(';').length < 5) continue;
 
-                const cabecalho = linhas[0].map(c => String(c).trim().toLowerCase());
+                // Divide por ponto e vírgula e limpa aspas e espaços
+                const col = texto.split(";").map(s => s.trim().replace(/^"|"$/g, ''));
 
-                const idx = {
-                    pedido:      cabecalho.findIndex(h => h.includes('pedido')),
-                    status:      cabecalho.findIndex(h => h === 'status'),
-                    idForn:      cabecalho.findIndex(h => h.includes('id fornecedor')),
-                    fornecedor:  cabecalho.findIndex(h => h === 'fornecedor'),
-                    valor:       cabecalho.findIndex(h => h.includes('valor')),
-                    descricao:   cabecalho.findIndex(h => h.includes('descri')),
-                    tipoImposto: cabecalho.findIndex(h => h.includes('imposto')),
-                    nf:          cabecalho.findIndex(h => h.includes('nota fiscal') || h.includes('nf')),
-                    emissao:     cabecalho.findIndex(h => h.includes('emiss')),
-                };
+                // Mapeamento baseado na sua estrutura Real:
+                const pedido      = col[0];  // Col A
+                const fornecedor  = col[2];  // Col C
+                const descricao   = col[3];  // Col D
+                const dataEmissao = col[4];  // Col E (Importante)
+                const numeroNF    = col[5];  // Col F (Importante)
+                const valorBruto  = col[8];  // Col I
 
-                const novasEntradas = [];
+                if (valorBruto) {
+                    // Converte valor brasileiro (1.200,50) para decimal (1200.50)
+                    const valorNum = parseFloat(valorBruto.replace(/\./g, '').replace(',', '.')) || 0;
 
-                for (let i = 1; i < linhas.length; i++) {
-                    const col = linhas[i];
-                    const valorRaw = idx.valor >= 0 ? col[idx.valor] : '';
-                    if (valorRaw === '' || valorRaw === null) continue;
+                    const novoLancamento = {
+                        id: Date.now() + Math.random(),
+                        doc: pedido,
+                        fornecedor: fornecedor,
+                        descricao: descricao,
+                        
+                        // Campos que o formulário do MobiTex PSCG usa:
+                        emissao: formatarDataParaISO(dataEmissao), 
+                        nf: numeroNF,
+                        
+                        valor: valorNum,
+                        tipoImposto: col[6],
+                        codServico: col[7],
+                        data: formatarDataParaISO(col[9]) || new Date().toISOString().substring(0, 10),
+                        cc: col[11] || "Suprimentos",
+                        status: (col[12] && col[12].toUpperCase().includes("Enviado")) ? "pago" : "pendente",
+                        tipo: "saida",
+                        rateio: []
+                    };
 
-                    const valorNum = typeof valorRaw === 'number'
-                        ? valorRaw
-                        : parseFloat(String(valorRaw).replace(/\./g, '').replace(',', '.')) || 0;
-
-                    let emissaoISO = '';
-                    if (idx.emissao >= 0) {
-                        const emRaw = col[idx.emissao];
-                        if (emRaw instanceof Date) {
-                            emissaoISO = emRaw.toISOString().substring(0, 10);
-                        } else if (emRaw) {
-                            const s = String(emRaw).replace(/\./g, '/');
-                            const p = s.split('/');
-                            if (p.length === 3) emissaoISO = p[2] + '-' + p[1].padStart(2,'0') + '-' + p[0].padStart(2,'0');
-                        }
-                    }
-
-                    const statusRaw = idx.status >= 0 ? String(col[idx.status]).trim().toLowerCase() : '';
-                    const statusMapeado = (statusRaw.includes('migo') || statusRaw.includes('miro') || statusRaw.includes('enviado')) ? 'pago' : 'pendente';
-
-                    novasEntradas.push({
-                        id:           Date.now() + Math.random(),
-                        doc:          idx.pedido >= 0 ? String(col[idx.pedido]).trim() : '',
-                        fornecedor:   idx.fornecedor >= 0 ? String(col[idx.fornecedor]).trim() : '',
-                        idFornecedor: idx.idForn >= 0 ? String(col[idx.idForn]).trim() : '',
-                        descricao:    idx.descricao >= 0 ? String(col[idx.descricao]).trim() : '',
-                        emissao:      emissaoISO,
-                        nf:           idx.nf >= 0 ? String(col[idx.nf]).trim() : '',
-                        valor:        valorNum,
-                        tipoImposto:  idx.tipoImposto >= 0 ? String(col[idx.tipoImposto]).trim() : '',
-                        data:         new Date().toISOString().substring(0, 10),
-                        cc:           'Suprimentos',
-                        status:       statusMapeado,
-                        tipo:         'saida',
-                        rateio:       []
-                    });
+                    novasEntradas.push(novoLancamento);
+                    contagem++;
                 }
-
-                if (novasEntradas.length > 0) {
-                    db.push(...novasEntradas);
-                    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-                    // ⚠️ Aguarda Firebase confirmar antes de recarregar
-                    if (window.fbSaveList) await fbSaveList('lancamentos', db);
-                    alert('Sucesso! ' + novasEntradas.length + ' lançamentos importados da planilha Excel.');
-                    location.reload();
-                } else {
-                    alert('Nenhum dado encontrado. Verifique se a planilha tem a estrutura correta com coluna VALOR TOTAL preenchida.');
-                }
-            } catch (err) {
-                console.error(err);
-                alert('Erro ao processar o arquivo .xlsx: ' + err.message);
             }
-        };
-        leitor.readAsArrayBuffer(arquivo);
 
-    } else {
-        // ── Importação legada CSV ─────────────────────────────────────────────
-        const leitor = new FileReader();
-        leitor.onload = async function(e) {
-            try {
-                let conteudo = e.target.result;
-                conteudo = conteudo.replace(/"([^"]*)"/g, (m, p1) => p1.replace(/\r?\n|\r/g, " "));
-                const linhas = conteudo.split(/\r?\n/);
-                let contagem = 0;
-                const novasEntradas = [];
-
-                for (let i = 1; i < linhas.length; i++) {
-                    let texto = linhas[i].trim();
-                    if (!texto || texto.split(';').length < 5) continue;
-                    const col = texto.split(";").map(s => s.trim().replace(/^"|"$/g, ''));
-                    const valorBruto = col[8];
-                    if (valorBruto) {
-                        const valorNum = parseFloat(valorBruto.replace(/\./g, '').replace(',', '.')) || 0;
-                        novasEntradas.push({
-                            id: Date.now() + Math.random(),
-                            doc: col[0], fornecedor: col[2], descricao: col[3],
-                            emissao: formatarDataParaISO(col[4]), nf: col[5],
-                            valor: valorNum, tipoImposto: col[6], codServico: col[7],
-                            data: formatarDataParaISO(col[9]) || new Date().toISOString().substring(0, 10),
-                            cc: col[11] || "Suprimentos",
-                            status: (col[12] && col[12].toUpperCase().includes("Enviado")) ? "pago" : "pendente",
-                            tipo: "saida", rateio: []
-                        });
-                        contagem++;
-                    }
+            if (contagem > 0) {
+                db.push(...novasEntradas);
+                // Salva apenas os novos itens importados (economiza cota)
+                if(window.fbSaveItem) {
+                    for (const it of novasEntradas) fbSaveItem(it);
                 }
-
-                if (contagem > 0) {
-                    db.push(...novasEntradas);
-                    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-                    // ⚠️ Aguarda Firebase confirmar antes de recarregar
-                    if (window.fbSaveList) await fbSaveList('lancamentos', db);
-                    alert("Sucesso! " + contagem + " lançamentos importados com NF e Emissão.");
-                    location.reload();
-                } else {
-                    alert("Nenhum dado lido. Verifique se o arquivo é CSV separado por ponto e vírgula.");
-                }
-            } catch (err) {
-                console.error(err);
-                alert("Erro ao processar: verifique se há símbolos estranhos na planilha.");
+                alert("Sucesso! " + contagem + " lançamentos importados com NF e Emissão.");
+                location.reload(); // Recarrega a página para garantir que tudo apareça
+            } else {
+                alert("Nenhum dado lido. Verifique se o arquivo é CSV separado por ponto e vírgula.");
             }
-        };
-        leitor.readAsText(arquivo, "ISO-8859-1");
-    }
+        } catch (err) {
+            console.error(err);
+            alert("Erro ao processar: verifique se há símbolos estranhos na planilha.");
+        }
+    };
+
+    leitor.readAsText(arquivo, "ISO-8859-1");
 }
 
 function formatarDataParaISO(dataStr) {
@@ -906,65 +888,44 @@ function previewArquivo() {
     const reader = new FileReader();
     const container = document.getElementById('previewContainer');
     const viewer = document.getElementById('viewer');
-
     if (!file) return;
-
     reader.onload = function(e) {
-        anexoBase64 = e.target.result; // Salva o conteúdo para gravar no DB
+        // base64 apenas para preview local temporário
+        anexoBase64 = e.target.result;
+        anexoUrl = '';
         container.style.display = 'block';
-        
         if (file.type === "application/pdf") {
-            viewer.innerHTML = `<iframe src="${anexoBase64}" width="100%" height="100%" frameborder="0"></iframe>`;
+            viewer.innerHTML = `<iframe src="${e.target.result}" width="100%" height="100%" frameborder="0"></iframe>`;
         } else {
-            viewer.innerHTML = `<img src="${anexoBase64}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+            viewer.innerHTML = `<img src="${e.target.result}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
         }
     };
-
     reader.readAsDataURL(file);
 }
 function visualizarAnexo() {
-    if (!anexoBase64) {
+    const src = anexoUrl || anexoBase64;
+    if (!src) {
         alert("Nenhum arquivo para visualizar.");
         return;
     }
-
     const container = document.getElementById('visualizadorFull');
-    container.innerHTML = ''; // Limpa o visualizador
-
-    if (anexoBase64.includes("application/pdf")) {
-        // Se for PDF, usa um <embed>
-        container.innerHTML = `<embed src="${anexoBase64}" type="application/pdf" width="100%" height="100%">`;
-    } else {
-        // Se for imagem, usa um <img>
-        container.innerHTML = `<img src="${anexoBase64}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
-    }
-
+    container.innerHTML = '';
+    const isPdf = src.includes("application/pdf") || src.toLowerCase().includes(".pdf");
+    container.innerHTML = isPdf
+        ? `<embed src="${src}" type="application/pdf" width="100%" height="100%">`
+        : `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
     document.getElementById('modalVisualizarArquivo').style.display = 'flex';
 }
 function removerAnexo() {
-    if (confirm("Tem certeza que deseja remover este anexo? Esta ação se aplicará a todas as parcelas do grupo.")) {
+    if (confirm("Tem certeza que deseja remover este anexo?")) {
         anexoBase64 = "";
+        anexoUrl = "";
         const input = document.getElementById('anexo');
         if (input) input.value = "";
         document.getElementById('btnVerAnexo').style.display = 'none';
         document.getElementById('btnRemoverAnexo').style.display = 'none';
         document.getElementById('nfAnexada').value = 'nao';
-
-        // Remove imediatamente do db (incluindo todo o grupo fixo/parcelado)
-        const idAtual = document.getElementById('editId') ? document.getElementById('editId').value : null;
-        if (idAtual) {
-            const item = db.find(t => String(t.id) == String(idAtual));
-            if (item) {
-                if (item.idGrupo) {
-                    db.forEach(t => { if (t.idGrupo === item.idGrupo) t.anexo = ''; });
-                } else {
-                    item.anexo = '';
-                }
-                localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-                if (window.fbSaveList) fbSaveList('lancamentos', db);
-            }
-        }
-        alert("Anexo removido com sucesso!");
+        alert("Anexo removido. Clique em SALVAR para confirmar.");
     }
 }
 function abrirConfigRateio() {
@@ -1016,7 +977,7 @@ function salvarModeloRateio() {
     }));
 
     modelosRateio[nome] = dados;
-    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
+    if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
     renderizarListaModelos();
     popularSelectModelos();
     alert("Modelo salvo!");
@@ -1025,7 +986,7 @@ function exportarPlanilhaPorCentroCusto() {
     const mesSelecionado = document.getElementById('filtroMes').value;
     if(!mesSelecionado) return alert("Selecione um mês primeiro!");
 
-    const dadosMes = db.filter(l => l.data.substring(0, 7) === mesSelecionado);
+    const dadosMes = db.filter(l => l.data && l.data.substring(0, 7) === mesSelecionado);
     if (dadosMes.length === 0) return alert("Não existem lançamentos para este mês.");
 
     let xml = `<?xml version="1.0"?>
@@ -1182,7 +1143,7 @@ function salvarModeloRateio() {
     }
 
     modelosRateio[nome] = dados;
-    localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
+    if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
     
     // Reseta o formulário após salvar
     document.getElementById('nomeModeloRateio').value = '';
@@ -1215,197 +1176,38 @@ function aplicarModeloNoLancamento() {
 function excluirModelo(nome) {
     if(confirm(`Excluir modelo ${nome}?`)) {
         delete modelosRateio[nome];
-        localStorage.setItem('mbtx_modelos_rateio', JSON.stringify(modelosRateio)); if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
+        if(window.fbSaveObject) fbSaveObject('config','modelosRateio',modelosRateio);
         renderizarListaModelos();
         popularSelectModelos();
     }
 }
 function exportarPlanilhaPorMes() {
-    const mesSelecionado = document.getElementById('filtroMes').value;
-    if (!mesSelecionado) return alert("Selecione um mês primeiro!");
-
-    const dadosMes = db.filter(l => l.data && l.data.substring(0, 7) === mesSelecionado);
-    if (dadosMes.length === 0) return alert("Não existem lançamentos para o mês selecionado.");
-
-    const meses = ['','JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO',
-                   'JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-    const [ano, mesNum] = mesSelecionado.split('-');
-    const nomeMes = meses[parseInt(mesNum)];
-
-    const linhas = dadosMes.map(l => {
-        let dataEmissao = '';
+    var mesSelecionado = document.getElementById('filtroMes').value;
+    if (!mesSelecionado) return alert('Selecione um mes primeiro!');
+    var dadosMes = db.filter(function(l){ return l.data && l.data.substring(0,7) === mesSelecionado; });
+    if (dadosMes.length === 0) return alert('Nao existem lancamentos para o mes selecionado.');
+    var meses = ['','JANEIRO','FEVEREIRO','MARCO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+    var partes = mesSelecionado.split('-');
+    var ano = partes[0]; var nomeMes = meses[parseInt(partes[1])];
+    var linhas = dadosMes.map(function(l){
+        var dataEmissao = '';
         if (l.dataEmissao) {
-            const p = l.dataEmissao.split('-');
-            if (p.length === 3) dataEmissao = `${p[2]}.${p[1]}.${p[0]}`;
-            else dataEmissao = l.dataEmissao;
+            var p = l.dataEmissao.split('-');
+            dataEmissao = p.length===3 ? p[2]+'.'+p[1]+'.'+p[0] : l.dataEmissao;
         }
-        const esc = v => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        return `<tr>
-            <td>${esc(l.doc)}</td>
-            <td>${esc(l.status)}</td>
-            <td>${esc(l.idFornecedor)}</td>
-            <td>${esc(l.fornecedor)}</td>
-            <td style="mso-number-format:'#,##0.00'">${parseFloat(l.valor || 0).toFixed(2)}</td>
-            <td>${esc(l.descricao)}</td>
-            <td>${esc(l.tipoImposto)}</td>
-            <td>${esc(l.nf || l.numNF)}</td>
-            <td>${esc(dataEmissao)}</td>
-        </tr>`;
+        function esc(v){ return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        return '<tr><td>'+esc(l.doc)+'</td><td>'+esc(l.status)+'</td><td>'+esc(l.idFornecedor)+'</td><td>'+esc(l.fornecedor)+'</td><td>'+parseFloat(l.valor||0).toFixed(2)+'</td><td>'+esc(l.descricao)+'</td><td>'+esc(l.tipoImposto)+'</td><td>'+esc(l.nf||l.numNF)+'</td><td>'+esc(dataEmissao)+'</td></tr>';
     }).join('');
-
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:x="urn:schemas-microsoft-com:office:excel"
-      xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="UTF-8">
-<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>
-  <x:ExcelWorksheet><x:Name>${nomeMes} ${ano}</x:Name>
-  <x:WorksheetOptions><x:Selected/></x:WorksheetOptions></x:ExcelWorksheet>
-</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-<style>
-  table{border-collapse:collapse;font-family:Arial;font-size:10pt;}
-  th{background-color:#2c3e50;color:white;font-weight:bold;padding:6px 10px;border:1px solid #999;text-align:center;white-space:nowrap;}
-  td{padding:5px 10px;border:1px solid #ddd;vertical-align:top;}
-  tr:nth-child(even) td{background-color:#f2f2f2;}
-</style></head>
-<body><table><thead><tr>
-  <th>N\u00ba do Pedido</th><th>Status</th><th>ID FORNECEDOR</th><th>FORNECEDOR</th>
-  <th>VALOR TOTAL</th><th>DESCRI\u00c7\u00c3O</th><th>TIPO DE IMPOSTO</th>
-  <th>N\u00ba NOTA FISCAL (NF)</th><th>DATA DE EMISS\u00c3O</th>
-</tr></thead><tbody>${linhas}</tbody></table>
-
-</body></html>`;
-
-// ── Cloudinary Upload (gratuito) ─────────────────────────────────────────────
-const CLOUDINARY_CONFIG = {
-    cloudName:    'dsezhsbxe',
-    uploadPreset: 'mbitex'
-};
-
-async function cloudinaryUpload(base64Data, itemId) {
-    if (!base64Data || !base64Data.startsWith('data:')) return null;
-    if (!CLOUDINARY_CONFIG.cloudName || CLOUDINARY_CONFIG.cloudName === 'SEU_CLOUD_NAME') {
-        console.warn('Cloudinary não configurado');
-        return null;
-    }
-    return new Promise((resolve) => {
-        try {
-            const formData = new FormData();
-            formData.append('file', base64Data);
-            formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
-            formData.append('public_id', 'mobitex_anexo_' + String(itemId));
-            formData.append('overwrite', 'true');
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/auto/upload`, true);
-            xhr.onload = function() {
-                try {
-                    const data = JSON.parse(xhr.responseText);
-                    if (data.secure_url) {
-                        console.log('\u2705 Cloudinary upload OK:', data.secure_url);
-                        resolve(data.secure_url);
-                    } else {
-                        console.error('\u274c Cloudinary erro:', data.error);
-                        if (typeof mostrarErroFb === 'function') mostrarErroFb('Cloudinary: ' + (data.error?.message || 'Erro desconhecido'));
-                        resolve(null);
-                    }
-                } catch(e) {
-                    console.error('\u274c Cloudinary parse erro:', e);
-                    resolve(null);
-                }
-            };
-            xhr.onerror = function() {
-                console.error('\u274c Cloudinary XHR erro - provavel bloqueio file://');
-                if (typeof mostrarErroFb === 'function') mostrarErroFb('Abra o arquivo via servidor, nao file://, para uploads funcionarem.');
-                resolve(null);
-            };
-            xhr.send(formData);
-        } catch(e) {
-            console.error('\u274c Cloudinary erro:', e);
-            resolve(null);
-        }
-    });
-}
-
-
-
-// Carrega config salva do localStorage
-(function() {
-    const cfg = JSON.parse(localStorage.getItem('mbtx_cloudinary') || '{}');
-    if (cfg.cloudName) {
-        const s = document.querySelector('script:last-of-type');
-        // Atualiza o config em tempo de execução
-        if (typeof CLOUDINARY_CONFIG !== 'undefined') {
-            CLOUDINARY_CONFIG.cloudName = cfg.cloudName;
-            CLOUDINARY_CONFIG.uploadPreset = cfg.uploadPreset;
-        }
-    }
-})();
-
-window.abrirConfigCloudinary = function abrirConfigCloudinary() {
-    const cfg = JSON.parse(localStorage.getItem('mbtx_cloudinary') || '{}');
-    if (cfg.cloudName) document.getElementById('cl_cloudName').value = cfg.cloudName;
-    if (cfg.uploadPreset) document.getElementById('cl_preset').value = cfg.uploadPreset;
-    document.getElementById('modalCloudinary').style.display = 'flex';
-}
-
-window.salvarConfigCloudinary = function salvarConfigCloudinary() {
-    const cloudName = document.getElementById('cl_cloudName').value.trim();
-    const uploadPreset = document.getElementById('cl_preset').value.trim();
-    if (!cloudName || !uploadPreset) {
-        document.getElementById('clStatus').innerHTML = '<span style="color:red;">Preencha os dois campos.</span>';
-        return;
-    }
-    localStorage.setItem('mbtx_cloudinary', JSON.stringify({ cloudName, uploadPreset }));
-    // Atualiza o objeto global
-    CLOUDINARY_CONFIG.cloudName = cloudName;
-    CLOUDINARY_CONFIG.uploadPreset = uploadPreset;
-    document.getElementById('clStatus').innerHTML = '<span style="color:green;">✅ Salvo!</span>';
-    setTimeout(() => fecharModal('modalCloudinary'), 1000);
-}
-
-// Carrega config ao iniciar
-window.addEventListener('load', () => {
-    const cfg = JSON.parse(localStorage.getItem('mbtx_cloudinary') || '{}');
-    if (cfg.cloudName && typeof CLOUDINARY_CONFIG !== 'undefined') {
-        CLOUDINARY_CONFIG.cloudName = cfg.cloudName;
-        CLOUDINARY_CONFIG.uploadPreset = cfg.uploadPreset;
-    }
-});
-
-
-
-function exportarBackupCompleto() {
-    const agora = new Date();
-    const timestamp = agora.toISOString().replace(/[:.]/g, '-').substring(0, 19);
-
-    const backup = {
-        versao: '1.0',
-        exportadoEm: agora.toLocaleString('pt-BR'),
-        totalLancamentos: db.length,
-        lancamentos: db,
-        contasBancos: contasBancos,
-        contasContabeis: contasContabeis,
-        fornecedores: fornecedoresCadastrados,
-        modelosRateio: modelosRateio
-    };
-
-    const json = JSON.stringify(backup, null, 2);
-    const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
-    const link = document.createElement('a');
+    var estilos = 'table{border-collapse:collapse;font-family:Arial;font-size:10pt;}th{background:#2c3e50;color:white;font-weight:bold;padding:6px 10px;border:1px solid #999;text-align:center;}td{padding:5px 10px;border:1px solid #ddd;}tr:nth-child(even) td{background:#f2f2f2;}';
+    var cabecalho = '<tr><th>N Pedido</th><th>Status</th><th>ID Fornecedor</th><th>Fornecedor</th><th>Valor Total</th><th>Descricao</th><th>Tipo Imposto</th><th>NF</th><th>Data Emissao</th></tr>';
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+estilos+'</style></head><body><table><thead>'+cabecalho+'</thead><tbody>'+linhas+'</tbody></table></body></html>';
+    var blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    var link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = 'mobitex_backup_' + timestamp + '.json';
-    link.click();
-
-    alert('✅ Backup gerado com sucesso!\n\n📦 ' + db.length + ' lançamentos exportados.');
-}
-
-
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${nomeMes}_${ano}.xls`;
+    link.download = nomeMes + '_' + ano + '.xls';
     link.click();
 }
+
 function toggleParcelas() {
     const tipo = document.getElementById('recorrencia').value;
     document.getElementById('divParcelas').style.display = (tipo === 'parcelado') ? 'block' : 'none';
@@ -1425,7 +1227,7 @@ function toggleParcelas() {
     let sCC = {}; contasContabeis.forEach(c => sCC[c] = 0);
 
     db.forEach(l => {
-        const mesL = l.data.substring(0, 7);
+        const mesL = l.data ? l.data.substring(0, 7) : '';
         
         // FILTRO: Só processa se o lançamento for do mês selecionado
         if (mesL === mesF) {
@@ -1463,7 +1265,7 @@ function toggleParcelas() {
 
     // Lista Principal (Filtrada por Mês e Busca)
     const filtrados = db.filter(l => {
-    const mesL = l.data.substring(0, 7);
+    const mesL = l.data ? l.data.substring(0, 7) : '';
     const termo = busca.toLowerCase();
 
     return mesL === mesF && (
@@ -1592,10 +1394,10 @@ renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
     if(tipo === 'banco') {
         document.getElementById('tituloLista').innerText = "Extrato Mensal: " + valorFiltro;
         // Adicionado filtro de mês aqui também
-        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.rateio && l.rateio.some(r => r.conta === valorFiltro));
+        filtrados = db.filter(l => l.data && l.data.substring(0,7) === mesF && l.rateio && l.rateio.some(r => r.conta === valorFiltro));
     } else {
         document.getElementById('tituloLista').innerText = "Categoria Mensal: " + valorFiltro;
-        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.cc === valorFiltro);
+        filtrados = db.filter(l => l.data && l.data.substring(0,7) === mesF && l.cc === valorFiltro);
     }
 
     const corpo = document.getElementById('corpoLista');
@@ -1617,10 +1419,10 @@ function verDetalhes(tipo, valorFiltro) {
     if(tipo === 'banco') {
         document.getElementById('tituloLista').innerText = "Extrato Mensal: " + valorFiltro;
         // Adicionado filtro de mês aqui também
-        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.rateio && l.rateio.some(r => r.conta === valorFiltro));
+        filtrados = db.filter(l => l.data && l.data.substring(0,7) === mesF && l.rateio && l.rateio.some(r => r.conta === valorFiltro));
     } else {
         document.getElementById('tituloLista').innerText = "Categoria Mensal: " + valorFiltro;
-        filtrados = db.filter(l => l.data.substring(0,7) === mesF && l.cc === valorFiltro);
+        filtrados = db.filter(l => l.data && l.data.substring(0,7) === mesF && l.cc === valorFiltro);
     }
 
     const corpo = document.getElementById('corpoLista');
@@ -1789,7 +1591,7 @@ function verDetalhes(tipo, valorFiltro) {
         status: document.getElementById('status').value,
         tipo: document.getElementById('tipo').value,
         nfAnexada: document.getElementById('nfAnexada').value,
-        anexo: anexoBase64,
+        anexo: (anexoBase64 && !anexoBase64.startsWith("data:")) ? anexoBase64 : (anexoBase64 && anexoBase64.startsWith("data:") ? "__pendente_upload__" : ""),
         rateio: _rateioEd,
         tipoRateio: _tipoRateioEd
     };
@@ -1848,41 +1650,32 @@ function confirmarSalvarEdicao(modo) {
 }
 
 async function _finalizarSalvarEdicao() {
-    // 1. Salva SEMPRE no localStorage (garantido, síncrono)
-    try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) { console.error('localStorage error', e); }
+    // Captura o ID e o item ANTES de qualquer operação (evita erro de escopo)
+    const idAtual = document.getElementById('editId').value;
+    let itemAtual = db.find(t => String(t.id) == String(idAtual));
 
-    // 2. Upload do anexo para Cloudinary (se for base64 novo)
+    // 1. Upload do anexo para Cloudinary PRIMEIRO (somente se há base64 novo)
     if (typeof cloudinaryUpload === 'function' && anexoBase64 && anexoBase64.startsWith('data:')) {
-        const idAtual = document.getElementById('editId').value;
-        const item = db.find(t => String(t.id) == String(idAtual));
-        if (item) {
-            const url = await cloudinaryUpload(anexoBase64, item.id);
+        if (itemAtual) {
+            const url = await cloudinaryUpload(anexoBase64, itemAtual.id);
             if (url) {
-                // Se faz parte de um grupo (fixo/parcelado), propaga a URL para todos do grupo
-                if (item.idGrupo) {
-                    db.forEach(t => { if (t.idGrupo === item.idGrupo) t.anexo = url; });
-                } else {
-                    item.anexo = url;
-                }
-                try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) {}
-            }
-        }
-    } else if (!anexoBase64 && _dadosEdicaoPendente === null) {
-        // Anexo foi removido: limpa URL do Cloudinary no item (e grupo se for fixo)
-        const idAtual = document.getElementById('editId').value;
-        const item = db.find(t => String(t.id) == String(idAtual));
-        if (item && item.nfAnexada === 'nao') {
-            if (item.idGrupo) {
-                db.forEach(t => { if (t.idGrupo === item.idGrupo) t.anexo = ''; });
+                itemAtual.anexo = url;
+                console.log('✅ Cloudinary upload OK:', url);
             } else {
-                item.anexo = '';
+                console.warn('⚠️ Cloudinary upload falhou, anexo não salvo.');
             }
-            try { localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); } catch(e) {}
         }
+        anexoBase64 = '';
+    } else if (itemAtual) {
+        // Preserva a URL existente do Cloudinary (ou limpa se foi removido)
+        itemAtual.anexo = anexoUrl || itemAtual.anexo || '';
     }
 
-    // 3. Sincroniza Firestore
-    if (window.fbSaveList) fbSaveList('lancamentos', db).catch(e => console.error('Firebase sync error', e));
+    // 2. Salva APENAS o item alterado no Firebase (economiza cota)
+    if (window.fbSaveItem && itemAtual) await fbSaveItem(itemAtual);
+
+    anexoBase64 = '';
+    anexoUrl = '';
     if (typeof atualizarSaldos === "function") atualizarSaldos();
     fecharModal('modalLanc');
     alert("Lançamento salvo com sucesso!");
@@ -1972,30 +1765,18 @@ function abrirEditar(id) {
         document.getElementById('qtdParcelas').value = 1;
 	document.getElementById('btnExcluir').style.display = 'block';
         document.getElementById('nfAnexada').value = l.nfAnexada || 'nenhum';
-        // 2. Reseta e carrega o anexo
-        anexoBase64 = l.anexo || '';
-const btnVer = document.getElementById('btnVerAnexo');
-    const btnExcluirAnexo = document.getElementById('btnRemoverAnexo');
+        // 2. Reseta e carrega o anexo (URL do Cloudinary, nunca base64)
+        anexoBase64 = '';
+        anexoUrl = l.anexo || '';
+        const btnVer = document.getElementById('btnVerAnexo');
+        const btnExcluirAnexo = document.getElementById('btnRemoverAnexo');
 
-    if (anexoBase64) {
-        if (btnVer) btnVer.style.display = 'inline-block';
-        if (btnExcluirAnexo) btnExcluirAnexo.style.display = 'inline-block';
-    } else {
-        if (btnVer) btnVer.style.display = 'none';
-        if (btnExcluirAnexo) btnExcluirAnexo.style.display = 'none';
-    }
-
-    
-    
-        const btnAnexo = document.querySelector('button[onclick*="anexo"]');
-        if (btnAnexo) {
-            if (anexoBase64) {
-                btnAnexo.innerText = "📎 Documento Anexado";
-                btnAnexo.style.background = "var(--primary)";
-            } else {
-                btnAnexo.innerText = "📎 Anexar Documento (PDF/IMG)";
-                btnAnexo.style.background = "var(--dark)";
-            }
+        if (anexoUrl) {
+            if (btnVer) btnVer.style.display = 'inline-block';
+            if (btnExcluirAnexo) btnExcluirAnexo.style.display = 'inline-block';
+        } else {
+            if (btnVer) btnVer.style.display = 'none';
+            if (btnExcluirAnexo) btnExcluirAnexo.style.display = 'none';
         }
 
         // 3. Limpa e preenche o rateio
@@ -2051,7 +1832,7 @@ const btnVer = document.getElementById('btnVerAnexo');
     if (!lancamento.parcela) {
         if (confirm("Deseja excluir este lançamento?")) {
             db = db.filter(item => item.id != id);
-            finalizarExclusao();
+            finalizarExclusao([id]);
         }
     } else {
         // Se for recorrente, abre o novo modal de opções
@@ -2087,8 +1868,14 @@ function executarExclusao(modo) {
     finalizarExclusao();
 }
 
-function finalizarExclusao() {
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+function finalizarExclusao(idsExcluidos) {
+    // Se temos os IDs excluídos, deleta só eles (economiza cota)
+    if (idsExcluidos && window.fbDeleteItem) {
+        idsExcluidos.forEach(id => fbDeleteItem(id));
+    } else if (window.fbSaveList) {
+        // Fallback: re-salva tudo (usado quando não sabemos os IDs exatos)
+        fbSaveList('lancamentos', db);
+    }
     fecharModal('modalConfirmarExclusao');
     fecharModal('modalLanc');
     atualizarSaldos();
@@ -2161,9 +1948,6 @@ function prepararEdicaoConfig(index) {
 function salvarNovoItem() {
     const nome = document.getElementById('novoItemNome').value.trim();
     if (!nome) return alert("Informe o nome.");
-    // Helper: salva array no localStorage com segurança
-    const _lsSave = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.error('ls error', e); } };
-
     if (indexEdicaoConfig !== null) {
         // ── MODO EDIÇÃO ────────────────────────────────────────────────
         if (abaAtivaConfig === 'bancos') {
@@ -2172,22 +1956,22 @@ function salvarNovoItem() {
             db.forEach(l => {
                 if (l.rateio) l.rateio.forEach(r => { if (r.conta === nomeAntigo) r.conta = nome; });
             });
-            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
+            if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
            
-            localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+            if(window.fbSaveList) fbSaveList('lancamentos', db);
            
         } else if (abaAtivaConfig === 'contas') {
             const nomeAntigo = contasContabeis[indexEdicaoConfig];
             contasContabeis[indexEdicaoConfig] = nome;
             db.forEach(l => { if (l.cc === nomeAntigo) l.cc = nome; });
-            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
+            if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
            
-            localStorage.setItem('mbtx_v82_db', JSON.stringify(db)); if(window.fbSaveList) fbSaveList('lancamentos', db);
+            if(window.fbSaveList) fbSaveList('lancamentos', db);
            
         } else {
             const id = document.getElementById('novoItemId').value.trim();
             fornecedoresCadastrados[indexEdicaoConfig] = { nome, idFornecedor: id };
-            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
+            if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
            
             popularDatalistFornecedores();
         }
@@ -2196,18 +1980,18 @@ function salvarNovoItem() {
         // ── MODO CRIAÇÃO ───────────────────────────────────────────────
         if (abaAtivaConfig === 'bancos') {
             contasBancos.push(nome);
-            localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
+            if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
            
         } else if (abaAtivaConfig === 'contas') {
             contasContabeis.push(nome);
-            localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
+            if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
            
         } else {
             const id = document.getElementById('novoItemId').value.trim();
             if (!id) return alert("Informe o ID do fornecedor.");
             if (fornecedoresCadastrados.find(f => f.idFornecedor === id)) return alert("ID já cadastrado!");
             fornecedoresCadastrados.push({ nome, idFornecedor: id });
-            localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
+            if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
            
             popularDatalistFornecedores();
         }
@@ -2262,7 +2046,7 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
     return docDigitado.trim();
 }
 
- function salvarNovoLancamento() {
+ async function salvarNovoLancamento() {
     const fornecedor = document.getElementById('fornecedor').value;
     if (!fornecedor) return alert("Informe o fornecedor.");
 
@@ -2273,7 +2057,6 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
     const dataInicial = document.getElementById('data').value;
     if (!dataInicial) return alert("Informe a data de pagamento.");
 
-    // Quantidade de parcelas: só usa o campo se for parcelado/fixo
     let qtdParcelas = 1;
     if (recorrencia === 'parcelado') {
         qtdParcelas = parseInt(document.getElementById('qtdParcelas').value) || 1;
@@ -2284,7 +2067,6 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
     const isParcelado = qtdParcelas > 1;
     const idGrupoNovo = isParcelado ? Date.now().toString() : null;
 
-    // Coleta rateio
     const linhasRateio = document.querySelectorAll('#containerRateio .rateio-linha');
     const rateio = Array.from(linhasRateio).map(l => ({
         conta: l.querySelector('.r-c') ? l.querySelector('.r-c').value : '',
@@ -2292,6 +2074,16 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
         v: parseFloat(l.querySelector('.r-v') ? l.querySelector('.r-v').value : 0) || 0
     })).filter(r => r.conta);
 
+    // Faz upload para Cloudinary ANTES de salvar no Firebase
+    let finalAnexoUrl = '';
+    if (anexoBase64 && anexoBase64.startsWith('data:') && typeof cloudinaryUpload === 'function') {
+        const tempId = Date.now();
+        finalAnexoUrl = await cloudinaryUpload(anexoBase64, tempId) || '';
+    } else if (anexoUrl) {
+        finalAnexoUrl = anexoUrl; // já é URL do Cloudinary
+    }
+
+    const _itensSalvar = [];
     for (let i = 0; i < qtdParcelas; i++) {
         const dataParcela = new Date(dataInicial + 'T12:00:00');
         dataParcela.setMonth(dataParcela.getMonth() + i);
@@ -2316,53 +2108,31 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
             nfAnexada: document.getElementById('nfAnexada').value,
             rateio: rateio,
             tipoRateio: document.getElementById('selectModeloPronto') ? document.getElementById('selectModeloPronto').value : '',
-            anexo: anexoBase64
+            anexo: finalAnexoUrl
         };
 
-        // Só adiciona idGrupo e parcela se for série
         if (isParcelado) {
             novoItem.idGrupo = idGrupoNovo;
             novoItem.parcela = `${i + 1}/${qtdParcelas}`;
         }
 
         db.push(novoItem);
+        _itensSalvar.push(novoItem);
     }
 
-    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-
-    // Upload do anexo para Cloudinary — faz UMA vez e distribui a URL para todas as parcelas
-    if (typeof cloudinaryUpload === 'function' && anexoBase64 && anexoBase64.startsWith('data:')) {
-        const itensNovos = isParcelado ? db.slice(-qtdParcelas) : db.slice(-1);
-        if (itensNovos.length > 0) {
-            cloudinaryUpload(anexoBase64, itensNovos[0].id).then(url => {
-                if (url) {
-                    // Aplica a mesma URL em todas as parcelas do grupo (não replica base64)
-                    itensNovos.forEach(it => { it.anexo = url; });
-                    localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-                }
-                if (window.fbSaveList) fbSaveList('lancamentos', db);
-            });
+    // Salva apenas os novos itens no Firebase (economiza cota)
+    if (window.fbSaveItem) {
+        for (const it of _itensSalvar) {
+            await fbSaveItem(it);
         }
-    } else {
-        // Sem anexo novo: garante que parcelas fixas NÃO herdam base64 de uma anterior
-        if (isParcelado) {
-            const itensNovos = db.slice(-qtdParcelas);
-            // Se o primeiro item não tem URL do Cloudinary, limpa anexo de todos (evita base64 replicado)
-            const primeiroAnexo = itensNovos[0]?.anexo || '';
-            if (primeiroAnexo.startsWith('data:')) {
-                itensNovos.forEach(it => { it.anexo = ''; });
-                localStorage.setItem('mbtx_v82_db', JSON.stringify(db));
-            }
-        }
-        if (window.fbSaveList) fbSaveList('lancamentos', db);
     }
 
     anexoBase64 = "";
+    anexoUrl = "";
     atualizarSaldos();
     fecharModal('modalLanc');
     alert(isParcelado ? `${qtdParcelas} parcelas criadas com sucesso!` : "Lançamento salvo com sucesso!");
 }
-
 function fecharEdicaoConfig() {
     indexEdicaoConfig = null;
     document.getElementById('novoItemNome').value = '';
@@ -2381,13 +2151,13 @@ function removerItemConfig(index) {
     
     if(abaAtivaConfig === 'bancos') {
         contasBancos.splice(index, 1);
-        localStorage.setItem('mbtx_v82_bancos', JSON.stringify(contasBancos)); if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
+        if(window.fbSaveObject) fbSaveObject('config','bancos',contasBancos);
     } else if(abaAtivaConfig === 'contas') {
         contasContabeis.splice(index, 1);
-        localStorage.setItem('mbtx_v82_cc', JSON.stringify(contasContabeis)); if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
+        if(window.fbSaveObject) fbSaveObject('config','contas',contasContabeis);
     } else {
         fornecedoresCadastrados.splice(index, 1);
-        localStorage.setItem('mbtx_v82_fornecedores', JSON.stringify(fornecedoresCadastrados)); if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
+        if(window.fbSaveObject) fbSaveObject('config','fornecedores',fornecedoresCadastrados);
         popularDatalistFornecedores();
     }
     renderizarListaConfig();
@@ -2398,7 +2168,10 @@ function tratarArquivo(event) {
     if (file) {
         const reader = new FileReader();
         reader.onload = function(e) {
-            anexoBase64 = e.target.result; // Salva o base64 aqui
+            // Armazena base64 apenas temporariamente em memória para preview
+            // O upload para Cloudinary acontece no momento de salvar
+            anexoBase64 = e.target.result;
+            anexoUrl = ''; // ainda não foi para o Cloudinary
             document.getElementById('btnVerAnexo').style.display = 'inline-block';
             document.getElementById('btnRemoverAnexo').style.display = 'inline-block';
             if(document.getElementById('nfAnexada')) document.getElementById('nfAnexada').value = 'sim';
@@ -2410,48 +2183,20 @@ function tratarArquivo(event) {
     function abrirModal(id) { document.getElementById(id).style.display = 'flex'; }
     function fecharModal(id) { document.getElementById(id).style.display = 'none'; }
 function abrirArquivoEmTelaCheia() {
-    // anexoBase64 é a variável que já guarda o arquivo no seu código atual
-    if (!anexoBase64) {
+    const src = anexoUrl || anexoBase64;
+    if (!src) {
         alert("Nenhum arquivo anexado para visualizar.");
         return;
     }
-
     const visualizador = document.getElementById('visualizadorFull');
-    
-    if (anexoBase64.includes("application/pdf")) {
-        visualizador.innerHTML = `<iframe src="${anexoBase64}" width="100%" height="100%" style="border:none;"></iframe>`;
-    } else {
-        visualizador.innerHTML = `<img src="${anexoBase64}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
-    }
-
+    const isPdf = src.includes("application/pdf") || src.toLowerCase().includes(".pdf");
+    visualizador.innerHTML = isPdf
+        ? `<iframe src="${src}" width="100%" height="100%" style="border:none;"></iframe>`
+        : `<img src="${src}" style="max-width:100%; max-height:100%; object-fit:contain;">`;
     abrirModal('modalVisualizarArquivo');
 }
 </script>
-<!-- Modal Configuração Cloudinary -->
-<div id="modalCloudinary" class="modal" style="z-index:9999;">
-  <div class="modal-content" style="max-width:420px;">
-    <h3 style="margin-top:0;">☁️ Configuração Cloudinary</h3>
-    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">
-      Preencha com os dados do seu painel em <b>cloudinary.com</b>
-    </p>
-    <label class="label-f">CLOUD NAME</label>
-    <input type="text" id="cl_cloudName" placeholder="ex: meuapp123" style="width:100%;margin-bottom:10px;">
-    <label class="label-f">UPLOAD PRESET (sem assinatura)</label>
-    <input type="text" id="cl_preset" placeholder="ex: mobitex_preset" style="width:100%;margin-bottom:6px;">
-    <small style="color:#999;display:block;margin-bottom:15px;">
-      Crie em: Settings → Upload → Add upload preset → <b>Unsigned</b> → Salvar
-    </small>
-    <div style="display:flex;gap:10px;margin-top:10px;">
-      <button onclick="salvarConfigCloudinary()" style="flex:2;background:var(--primary);color:white;border:none;padding:14px;border-radius:10px;font-weight:bold;cursor:pointer;">
-        💾 SALVAR
-      </button>
-      <button onclick="fecharModal('modalCloudinary')" style="flex:1;background:#eee;border:none;padding:14px;border-radius:10px;cursor:pointer;">
-        CANCELAR
-      </button>
-    </div>
-    <div id="clStatus" style="margin-top:10px;font-size:0.8rem;text-align:center;"></div>
-  </div>
-</div>
+
 <div id="modalListagem" class="modal">
     <div class="modal-content">
         <h3 id="tituloLista">Detalhes</h3>
@@ -2536,6 +2281,7 @@ function abrirArquivoEmTelaCheia() {
 </div>
 
 
+</script>
 <script>
 function mostrarErroFb(msg) {
     let div = document.getElementById('fbStatusBar');
@@ -2566,6 +2312,47 @@ function mostrarSucessoFb() {
 </script>
 
 </div><!-- /appContent -->
+
+
+<!-- Modal Configuração Cloudinary -->
+<div id="modalCloudinary" class="modal" style="z-index:9999;">
+  <div class="modal-content" style="max-width:420px;">
+    <h3 style="margin-top:0;">&#9925; Configuracao Cloudinary</h3>
+    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">Preencha com os dados do seu painel em <b>cloudinary.com</b></p>
+    <label class="label-f">CLOUD NAME</label>
+    <input type="text" id="cl_cloudName" placeholder="ex: dsezhsbxe" style="width:100%;margin-bottom:10px;">
+    <label class="label-f">UPLOAD PRESET</label>
+    <input type="text" id="cl_preset" placeholder="ex: mbitex" style="width:100%;margin-bottom:6px;">
+    <div style="display:flex;gap:10px;margin-top:10px;">
+      <button onclick="salvarConfigCloudinary()" style="flex:2;background:var(--primary);color:white;border:none;padding:14px;border-radius:10px;font-weight:bold;cursor:pointer;">SALVAR</button>
+      <button onclick="fecharModal('modalCloudinary')" style="flex:1;background:#eee;border:none;padding:14px;border-radius:10px;cursor:pointer;">CANCELAR</button>
+    </div>
+    <div id="clStatus" style="margin-top:10px;font-size:0.8rem;text-align:center;"></div>
+  </div>
+</div>
+<script>
+function abrirConfigCloudinary() {
+    if (CLOUDINARY_CONFIG.cloudName) document.getElementById('cl_cloudName').value = CLOUDINARY_CONFIG.cloudName;
+    if (CLOUDINARY_CONFIG.uploadPreset) document.getElementById('cl_preset').value = CLOUDINARY_CONFIG.uploadPreset;
+    document.getElementById('modalCloudinary').style.display = 'flex';
+}
+function salvarConfigCloudinary() {
+    var cloudName = document.getElementById('cl_cloudName').value.trim();
+    var uploadPreset = document.getElementById('cl_preset').value.trim();
+    if (!cloudName || !uploadPreset) {
+        document.getElementById('clStatus').innerHTML = '<span style="color:red;">Preencha os campos.</span>'; return;
+    }
+    if (typeof CLOUDINARY_CONFIG !== 'undefined') {
+        CLOUDINARY_CONFIG.cloudName = cloudName;
+        CLOUDINARY_CONFIG.uploadPreset = uploadPreset;
+    }
+    // Salva no Firebase
+    if (window.fbSaveObject) fbSaveObject('config', 'cloudinary', {cloudName, uploadPreset});
+    document.getElementById('clStatus').innerHTML = '<span style="color:green;">Salvo!</span>';
+    setTimeout(function(){ fecharModal('modalCloudinary'); }, 1000);
+}
+// Cloudinary config loaded from Firebase on sync
+</script>
 
 <script>
 async function fazerLogin() {
@@ -2607,6 +2394,67 @@ function fazerLogout() {
 }
 </script>
 
-</body>
 <datalist id="listaSugestoesFornecedores"></datalist>
+<script>
+const CLOUDINARY_CONFIG = {
+    cloudName:    'dsezhsbxe',
+    uploadPreset: 'mbitex'
+};
+
+async function cloudinaryUpload(base64Data, itemId) {
+    if (!base64Data || !base64Data.startsWith('data:')) return null;
+    try {
+        const formData = new FormData();
+        formData.append('file', base64Data);
+        formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
+        formData.append('public_id', 'mobitex_anexo_' + String(itemId));
+        const res = await fetch(
+            'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CONFIG.cloudName + '/auto/upload',
+            { method: 'POST', body: formData }
+        );
+        const data = await res.json();
+        if (data.secure_url) {
+            console.log('Cloudinary OK:', data.secure_url);
+            return data.secure_url;
+        }
+        mostrarErroFb('Cloudinary: ' + (data.error ? data.error.message : 'Erro'));
+        return null;
+    } catch(e) {
+        mostrarErroFb('Cloudinary: ' + e.message);
+        return null;
+    }
+}
+</script>
+
+<script>
+function exportarBackupCompleto() {
+    const agora = new Date();
+    const timestamp = agora.toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    // Exporta apenas URLs de anexos (nunca base64)
+    const lancamentosSemBase64 = db.map(item => {
+        if (item.anexo && item.anexo.startsWith('data:')) {
+            const { anexo, ...resto } = item;
+            return resto;
+        }
+        return item;
+    });
+    const backup = {
+        versao: '2.0',
+        exportadoEm: agora.toLocaleString('pt-BR'),
+        totalLancamentos: lancamentosSemBase64.length,
+        lancamentos: lancamentosSemBase64,
+        contasBancos: contasBancos,
+        contasContabeis: contasContabeis,
+        fornecedores: fornecedoresCadastrados,
+        modelosRateio: modelosRateio
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'mobitex_backup_' + timestamp + '.json';
+    link.click();
+    alert('Backup gerado! ' + lancamentosSemBase64.length + ' lancamentos exportados.');
+}
+</script>
+</body>
 </html>
