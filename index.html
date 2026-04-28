@@ -2416,6 +2416,38 @@ function fazerLogout() {
 <script>
 // ─── GOOGLE DRIVE UPLOAD ─────────────────────────────────────────────────────
 let GDRIVE_TOKEN = '';
+let GDRIVE_FOLDER_ID = null; // ID da pasta "Mobitex" no Drive
+
+// Busca ou cria a pasta "Mobitex" no Google Drive
+async function getOrCreateMobitexFolder() {
+    if (GDRIVE_FOLDER_ID) return GDRIVE_FOLDER_ID;
+    try {
+        // Busca se a pasta já existe
+        const searchRes = await fetch(
+            "https://www.googleapis.com/drive/v3/files?q=name%3D'Mobitex'%20and%20mimeType%3D'application%2Fvnd.google-apps.folder'%20and%20trashed%3Dfalse&fields=files(id%2Cname)",
+            { headers: { 'Authorization': 'Bearer ' + GDRIVE_TOKEN } }
+        );
+        const searchData = await searchRes.json();
+        if (searchData.files && searchData.files.length > 0) {
+            GDRIVE_FOLDER_ID = searchData.files[0].id;
+            console.log('✅ Pasta Mobitex encontrada:', GDRIVE_FOLDER_ID);
+            return GDRIVE_FOLDER_ID;
+        }
+        // Cria a pasta se não existir
+        const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + GDRIVE_TOKEN, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'Mobitex', mimeType: 'application/vnd.google-apps.folder' })
+        });
+        const createData = await createRes.json();
+        GDRIVE_FOLDER_ID = createData.id;
+        console.log('✅ Pasta Mobitex criada:', GDRIVE_FOLDER_ID);
+        return GDRIVE_FOLDER_ID;
+    } catch(e) {
+        console.error('Erro ao criar pasta Mobitex:', e);
+        return null;
+    }
+}
 
 async function cloudinaryUpload(base64Data, itemId) {
     if (!base64Data || !base64Data.startsWith('data:')) return null;
@@ -2425,6 +2457,10 @@ async function cloudinaryUpload(base64Data, itemId) {
     }
     try {
         console.log('⬆️ Enviando para Google Drive...');
+
+        // Garante que a pasta Mobitex existe
+        const folderId = await getOrCreateMobitexFolder();
+
         const [meta, b64] = base64Data.split(',');
         const mime = meta.match(/:(.*?);/)[1];
         const bytes = atob(b64);
@@ -2433,7 +2469,12 @@ async function cloudinaryUpload(base64Data, itemId) {
         const blob = new Blob([arr], { type: mime });
         const ext = mime.includes('pdf') ? 'pdf' : (mime.split('/')[1] || 'bin');
         const filename = 'mobitex_anexo_' + String(itemId) + '.' + ext;
-        const metaBlob = new Blob([JSON.stringify({ name: filename })], { type: 'application/json' });
+
+        // Inclui a pasta no metadata se encontrada/criada
+        const fileMeta = { name: filename };
+        if (folderId) fileMeta.parents = [folderId];
+
+        const metaBlob = new Blob([JSON.stringify(fileMeta)], { type: 'application/json' });
         const form = new FormData();
         form.append('metadata', metaBlob);
         form.append('file', blob);
