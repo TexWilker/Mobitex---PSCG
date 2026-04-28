@@ -2409,7 +2409,6 @@ async function cloudinaryUpload(base64Data, itemId) {
         formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
         formData.append('public_id', 'mobitex_anexo_' + String(itemId));
         formData.append('access_mode', 'public');
-        formData.append('resource_type', 'auto');
         const res = await fetch(
             'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CONFIG.cloudName + '/auto/upload',
             { method: 'POST', body: formData }
