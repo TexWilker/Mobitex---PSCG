@@ -7,7 +7,7 @@
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
       import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, writeBatch }
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-      import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+      import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged }
         from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
       const firebaseConfig = {
@@ -25,14 +25,62 @@
       const _auth = getAuth(_app);
 
       // Monitora estado de autenticação
+      // ════════════════════════════════════════════════════════
+      // ▼▼▼ LISTA DE USUÁRIOS SOMENTE LEITURA — EDITE AQUI ▼▼▼
+      // Para restringir um usuário, adicione o e-mail dele abaixo.
+      // Exemplo: 'fulano@gmail.com',
+      // ════════════════════════════════════════════════════════
+      window.USUARIOS_SOMENTE_LEITURA = [
+          'visualizador@gmail.com',   // ← substitua pelo e-mail desejado
+      ];
+      // ════════════════════════════════════════════════════════
+
+      window.isSomenteLeitura = function() {
+          const user = window._fbUser;
+          if (!user) return false;
+          return window.USUARIOS_SOMENTE_LEITURA.includes(user.email.toLowerCase());
+      };
+
+      // E-mail master — sempre tem acesso independente da lista
+      const ADMIN_MASTER = 'texwilker@gmail.com';
+
       onAuthStateChanged(_auth, async (user) => {
         if (user) {
           window._fbUser = user;
+          const emailUser = user.email.toLowerCase();
+
+          // Verifica se o usuário está na lista de permitidos (exceto o master)
+          if (emailUser !== ADMIN_MASTER) {
+              try {
+                  const permDados = await window.fbLoadObject('config', 'usuarios_permissoes');
+                  const lista = permDados && permDados.lista ? permDados.lista : [];
+                  const cadastrado = lista.find(u => u.email === emailUser);
+                  if (!cadastrado) {
+                      // Usuário foi removido — faz logout automático
+                      console.warn('⛔ Usuário não autorizado:', emailUser);
+                      if (window.fbLogout) await window.fbLogout();
+                      document.getElementById('modalLogin') && (document.getElementById('modalLogin').style.display = 'flex');
+                      document.getElementById('appContent') && (document.getElementById('appContent').style.display = 'none');
+                      document.getElementById('loginErro') && (document.getElementById('loginErro').textContent = 'Acesso revogado. Entre em contato com o administrador.');
+                      return;
+                  }
+              } catch(e) {
+                  console.error('Erro ao verificar permissão:', e);
+              }
+          }
+
           document.getElementById('modalLogin') && (document.getElementById('modalLogin').style.display = 'none');
           document.getElementById('appContent') && (document.getElementById('appContent').style.display = 'block');
           console.log('✅ Autenticado:', user.email);
-          // Só carrega os dados do Firebase após autenticação confirmada
           if (window.sincronizarFirebase) await window.sincronizarFirebase();
+          // Aplica restrição conforme permissão
+          if (window.isSomenteLeitura()) {
+              console.log('👁️ Modo somente leitura ativo para:', user.email);
+              setTimeout(aplicarModoSomenteLeitura, 500);
+          } else if (window.isSomenteCriacao && window.isSomenteCriacao()) {
+              console.log('✏️ Modo criação ativo para:', user.email);
+              setTimeout(aplicarModoCriacao, 500);
+          }
         } else {
           window._fbUser = null;
           document.getElementById('modalLogin') && (document.getElementById('modalLogin').style.display = 'flex');
@@ -55,6 +103,18 @@
           };
           return msgs[e.code] || 'Erro: ' + e.message;
         }
+      };
+
+      window.fbCriarUsuario = async function(email, senha) {
+          try {
+              const cred = await createUserWithEmailAndPassword(_auth, email, senha);
+              return true;
+          } catch(e) {
+              if (e.code === 'auth/email-already-in-use') return 'E-mail já cadastrado.';
+              if (e.code === 'auth/weak-password') return 'Senha muito fraca (mínimo 6 caracteres).';
+              if (e.code === 'auth/invalid-email') return 'E-mail inválido.';
+              return e.message;
+          }
       };
 
       window.fbLogout = async function() {
@@ -400,45 +460,204 @@
     <h2 style="margin:0 0 4px;color:#2c3e50;font-size:1.3rem;">MobiTex PSCG</h2>
     <p style="color:#999;font-size:0.8rem;margin-bottom:24px;">Sistema Financeiro</p>
 
-    <input type="email" id="loginEmail" placeholder="E-mail" 
-      style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:10px;box-sizing:border-box;">
-    <input type="password" id="loginSenha" placeholder="Senha"
-      style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:6px;box-sizing:border-box;">
+    <!-- TELA DE LOGIN -->
+    <div id="telaLogin">
+      <input type="email" id="loginEmail" placeholder="E-mail"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:10px;box-sizing:border-box;">
+      <input type="password" id="loginSenha" placeholder="Senha"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:6px;box-sizing:border-box;">
+      <div id="loginErro" style="color:#e74c3c;font-size:0.8rem;min-height:20px;margin-bottom:10px;"></div>
+      <button onclick="fazerLogin()" id="btnLogin"
+        style="width:100%;padding:14px;background:#2ecc71;color:white;border:none;border-radius:10px;font-size:1rem;font-weight:bold;cursor:pointer;margin-bottom:10px;">
+        ENTRAR
+      </button>
+      <button onclick="mostrarTelaCadastro()"
+        style="width:100%;padding:10px;background:none;color:#2c3e50;border:1px solid #ddd;border-radius:10px;font-size:0.9rem;cursor:pointer;">
+        Criar conta com convite
+      </button>
+    </div>
 
-    <div id="loginErro" style="color:#e74c3c;font-size:0.8rem;min-height:20px;margin-bottom:10px;"></div>
-
-    <button onclick="fazerLogin()" id="btnLogin"
-      style="width:100%;padding:14px;background:#2ecc71;color:white;border:none;border-radius:10px;font-size:1rem;font-weight:bold;cursor:pointer;">
-      ENTRAR
-    </button>
+    <!-- TELA DE CADASTRO COM CONVITE -->
+    <div id="telaCadastro" style="display:none;">
+      <p style="color:#2c3e50;font-weight:bold;margin-bottom:16px;">Criar conta</p>
+      <input type="email" id="cadEmail" placeholder="Seu e-mail"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:10px;box-sizing:border-box;">
+      <input type="password" id="cadSenha" placeholder="Criar senha (mín. 6 caracteres)"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:10px;box-sizing:border-box;">
+      <input type="password" id="cadSenha2" placeholder="Confirmar senha"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:10px;box-sizing:border-box;">
+      <input type="text" id="cadConvite" placeholder="Código de convite"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:0.95rem;margin-bottom:6px;box-sizing:border-box;letter-spacing:2px;text-transform:uppercase;">
+      <div id="cadErro" style="color:#e74c3c;font-size:0.8rem;min-height:20px;margin-bottom:10px;"></div>
+      <button onclick="criarContaComConvite()" id="btnCriarConta"
+        style="width:100%;padding:14px;background:#3498db;color:white;border:none;border-radius:10px;font-size:1rem;font-weight:bold;cursor:pointer;margin-bottom:10px;">
+        CRIAR CONTA
+      </button>
+      <button onclick="mostrarTelaLogin()"
+        style="width:100%;padding:10px;background:none;color:#999;border:none;font-size:0.9rem;cursor:pointer;">
+        ← Voltar ao login
+      </button>
+    </div>
   </div>
 </div>
 
 <div id="appContent" style="display:none;">
 
-<button class="btn-export" onclick="document.getElementById('importadorCSV').click()" 
-        style="bottom: 435px; right: 32px; background: var(--info);" title="Importar Planilha">
-    📥
-</button>
-
 <input type="file" id="importadorCSV" style="display:none" accept=".csv" onchange="processarPlanilha(event)">
-<button class="btn-export btn-sap" onclick="exportarPlanilhaPorMes()" title="Exportar SAP">
-    📋
+<button class="btn-add" onclick="abrirNovoLançamento()" title="Novo Lançamento">+</button>
+
+<!-- Menu Hamburguer -->
+<style>
+#hamburguerBtn {
+    position: fixed;
+    top: 15px;
+    right: 18px;
+    z-index: 1500;
+    background: var(--dark);
+    border: none;
+    border-radius: 10px;
+    width: 42px;
+    height: 42px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+#hamburguerBtn span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: white;
+    border-radius: 2px;
+    transition: all 0.3s;
+}
+#hamburguerMenu {
+    position: fixed;
+    top: 0;
+    right: -280px;
+    width: 260px;
+    height: 100%;
+    background: white;
+    z-index: 1400;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+    transition: right 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+#hamburguerMenu.aberto {
+    right: 0;
+}
+#hamburguerOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 1390;
+    backdrop-filter: blur(2px);
+}
+#hamburguerOverlay.ativo { display: block; }
+.hm-header {
+    background: var(--dark);
+    color: white;
+    padding: 20px 18px 16px;
+    font-weight: bold;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.hm-section {
+    padding: 10px 14px 4px;
+    font-size: 0.65rem;
+    font-weight: bold;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.hm-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 18px;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-size: 0.9rem;
+    color: var(--dark);
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background 0.15s;
+}
+.hm-item:hover { background: #f4f7f6; }
+.hm-item .hm-icon { font-size: 1.2rem; width: 26px; text-align: center; }
+.hm-item.danger { color: var(--danger); }
+.hm-divider { height: 1px; background: #eee; margin: 6px 0; }
+</style>
+
+<div id="hamburguerOverlay" onclick="fecharMenu()"></div>
+
+<button id="hamburguerBtn" onclick="toggleMenu()">
+    <span></span><span></span><span></span>
 </button>
 
-<button class="btn-export btn-cc" onclick="exportarPlanilhaPorCentroCusto()" title="Exportar Centro de Custo">
-    🏢
-</button>
+<div id="hamburguerMenu">
+    <div class="hm-header">🧾 MobiTex PSCG</div>
 
-<button class="btn-add" onclick="abrirNovoLançamento()"title="Novo Lançamento">+</button>
-<button class="btn-export btn-config" onclick="abrirConfig()" title="Configurações">⚙️</button>
-<button class="btn-export btn-backup" onclick="exportarBackupCompleto()" title="Backup Completo JSON">💾</button>
+    <div class="hm-section">Conta</div>
+    <button class="hm-item" onclick="fecharMenu(); abrirGerenciarUsuarios()">
+        <span class="hm-icon">👥</span> Gerenciar Usuários
+    </button>
+    <button class="hm-item" onclick="fecharMenu(); abrirConfigCloudinary()">
+        <span class="hm-icon">☁️</span> Configurar Cloudinary
+    </button>
+    <button class="hm-item danger" onclick="fecharMenu(); fazerLogout()">
+        <span class="hm-icon">🔓</span> Sair
+    </button>
+
+    <div class="hm-divider"></div>
+    <div class="hm-section">Dados</div>
+    <button class="hm-item" onclick="fecharMenu(); document.getElementById('importadorCSV').click()">
+        <span class="hm-icon">📥</span> Importar Planilha CSV
+    </button>
+    <button class="hm-item" onclick="fecharMenu(); exportarPlanilhaPorMes()">
+        <span class="hm-icon">📋</span> Exportar SAP (por Mês)
+    </button>
+    <button class="hm-item" onclick="fecharMenu(); exportarPlanilhaPorCentroCusto()">
+        <span class="hm-icon">🏢</span> Exportar por Centro de Custo
+    </button>
+    <button class="hm-item" onclick="fecharMenu(); exportarBackupCompleto()">
+        <span class="hm-icon">💾</span> Backup Completo JSON
+    </button>
+
+    <div class="hm-divider"></div>
+    <div class="hm-section">Sistema</div>
+    <button class="hm-item" onclick="fecharMenu(); abrirConfig()">
+        <span class="hm-icon">⚙️</span> Configurações
+    </button>
+</div>
+
+<script>
+function toggleMenu() {
+    const menu = document.getElementById('hamburguerMenu');
+    const overlay = document.getElementById('hamburguerOverlay');
+    const aberto = menu.classList.contains('aberto');
+    if (aberto) { fecharMenu(); } 
+    else { menu.classList.add('aberto'); overlay.classList.add('ativo'); }
+}
+function fecharMenu() {
+    document.getElementById('hamburguerMenu').classList.remove('aberto');
+    document.getElementById('hamburguerOverlay').classList.remove('ativo');
+}
+</script>
 
     <div class="container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h2 style="margin:0; font-size: 1.2rem; color: var(--dark);">MobiTex PSCG</h2>
-        <button onclick="fazerLogout()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;" title="Sair">🔓</button>
-        <button onclick="abrirConfigCloudinary()" style="background:none; border:none; font-size: 1.3rem; cursor:pointer;" title="Configurar Cloudinary">☁️</button>
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
@@ -459,6 +678,39 @@
 
     <small><b>📜 CONTAS CONTÁBEIS</b></small>
     <div id="dashCC" class="scroll-container"></div>
+
+    <!-- DASHBOARD DE IMPOSTOS -->
+    <div style="margin-top: 18px;">
+        <small><b>🏛️ RETENÇÕES / IMPOSTOS</b></small>
+        <div id="dashImpostos" class="scroll-container"></div>
+    </div>
+
+    <!-- GRÁFICO DE BARRAS DOS IMPOSTOS -->
+    <div id="dashImpostosGrafico" style="background:#fff; border:1px solid #eee; border-radius:15px; padding:16px; margin-top:14px; display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <small><b>📊 COMPOSIÇÃO DAS RETENÇÕES — <span id="dashImpostosMes"></span></b></small>
+            <button onclick="fecharGraficoImpostos()" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:#999;">✕</button>
+        </div>
+        <div id="dashImpostosBarras" style="display:flex; flex-direction:column; gap:10px;"></div>
+        <div style="margin-top:14px; padding-top:10px; border-top:1px solid #eee; display:flex; justify-content:space-between;">
+            <span style="font-size:0.8rem; color:#666;">Total Retenções no Mês:</span>
+            <strong id="dashImpostosTotal" style="color:#e74c3c; font-size:0.95rem;"></strong>
+        </div>
+    </div>
+
+    <!-- MODAL DETALHAMENTO DO IMPOSTO -->
+    <div id="modalDetalheImposto" class="modal">
+        <div class="modal-content" style="max-width:420px;">
+            <button class="btn-close-modal" onclick="fecharModal('modalDetalheImposto')">&times;</button>
+            <h3 id="detalheImpostoTitulo" style="margin-top:0; font-size:1rem;"></h3>
+            <div style="margin-bottom:10px; font-size:0.8rem; color:#666;">Lançamentos com retenção no mês selecionado</div>
+            <div id="detalheImpostoLista" style="max-height:320px; overflow-y:auto;"></div>
+            <div style="margin-top:12px; padding-top:10px; border-top:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:0.85rem; color:#666;">Total:</span>
+                <strong id="detalheImpostoTotal" style="color:#e74c3c;"></strong>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div id="abaPedidos" class="secao-aba" style="display:none;">
@@ -559,6 +811,41 @@
         <label class="label-f">COD. SERVIÇO</label>
         <input type="text" id="codServico" placeholder="0000" style="width: 100%;">
     </div>
+
+    <!-- CAMPOS DE IMPOSTOS/RETENÇÕES -->
+    <div class="full" style="background:#fff3cd; border:1px solid #ffc107; border-radius:10px; padding:10px; margin-top:5px;">
+        <label class="label-f" style="color:#856404; font-size:0.75rem;">💰 RETENÇÕES / IMPOSTOS (R$)</label>
+        <div class="form-grid" style="margin-top:5px;">
+            <div>
+                <label class="label-f">PIS</label>
+                <input type="number" id="valPIS" step="0.01" placeholder="0,00" oninput="recalcularRetencoes()" style="width:100%;">
+            </div>
+            <div>
+                <label class="label-f">COFINS</label>
+                <input type="number" id="valCOFINS" step="0.01" placeholder="0,00" oninput="recalcularRetencoes()" style="width:100%;">
+            </div>
+            <div>
+                <label class="label-f">INSS</label>
+                <input type="number" id="valINSS" step="0.01" placeholder="0,00" oninput="recalcularRetencoes()" style="width:100%;">
+            </div>
+            <div>
+                <label class="label-f">IR</label>
+                <input type="number" id="valIR" step="0.01" placeholder="0,00" oninput="recalcularRetencoes()" style="width:100%;">
+            </div>
+            <div class="full">
+                <label class="label-f">CSLL</label>
+                <input type="number" id="valCSLL" step="0.01" placeholder="0,00" oninput="recalcularRetencoes()" style="width:100%;">
+            </div>
+            <div class="full" style="background:#f8f9fa; padding:8px; border-radius:8px; font-size:0.8rem;">
+                <span style="color:#666;">Total Retenções: </span>
+                <strong id="totalRetencoes" style="color:#e74c3c;">R$ 0,00</strong>
+                &nbsp;|&nbsp;
+                <span style="color:#666;">Valor Líquido: </span>
+                <strong id="valorLiquidoCalc" style="color:#27ae60;">R$ 0,00</strong>
+            </div>
+        </div>
+    </div>
+
     <div id="infoValores" style="background:#f8f9fa; padding:10px; border-radius:10px; margin-bottom:15px; display:none; font-size:0.8rem;">
         <span id="txtValorParcela"></span> | <strong id="txtValorTotal"></strong>
     </div>
@@ -589,7 +876,7 @@
                 </div>
                 <div>
                     <label class="label-f">VALOR TOTAL</label>
-                    <input type="number" id="valorTotal" step="0.01" oninput="recalcularRateio()" style="width: 100%;">
+                    <input type="number" id="valorTotal" step="0.01" oninput="recalcularRateio(); recalcularRetencoes();" style="width: 100%;">
                 </div>
                 <div>
                     <label class="label-f">DATA PAGAMENTO</label>
@@ -906,7 +1193,7 @@ function previewArquivo() {
 }
 function visualizarAnexo() {
     const src = anexoUrl || anexoBase64;
-    if (!src) {
+    if (!src || src === '__pendente_upload__') {
         alert("Nenhum arquivo para visualizar.");
         return;
     }
@@ -1272,6 +1559,65 @@ function toggleParcelas() {
             <strong>R$ ${(sCC[c] || 0).toFixed(2)}</strong>
         </div>`).join('');
 
+    // ─── DASHBOARD DE IMPOSTOS ────────────────────────────────────────────
+    const _impostosMeta = [
+        { key: 'valPIS',    label: 'PIS',    cor: '#3498db' },
+        { key: 'valCOFINS', label: 'COFINS', cor: '#9b59b6' },
+        { key: 'valINSS',   label: 'INSS',   cor: '#e67e22' },
+        { key: 'valIR',     label: 'IR',     cor: '#e74c3c' },
+        { key: 'valCSLL',   label: 'CSLL',   cor: '#1abc9c' }
+    ];
+    let _totalImpostos = 0;
+    const _sImpostos = {};
+    _impostosMeta.forEach(imp => { _sImpostos[imp.key] = 0; });
+
+    db.forEach(l => {
+        if (l.data && l.data.substring(0, 7) === mesF) {
+            _impostosMeta.forEach(imp => {
+                const val = parseFloat(l[imp.key]) || 0;
+                _sImpostos[imp.key] += val;
+                _totalImpostos += val;
+            });
+        }
+    });
+
+    if (!document.getElementById('styleImpostos')) {
+        const st = document.createElement('style');
+        st.id = 'styleImpostos';
+        st.textContent = `
+            .dash-imposto { min-width: 130px; background: #f8f9fa; padding: 12px 14px; border-radius: 12px; cursor: pointer; flex-shrink: 0; transition: transform 0.15s, box-shadow 0.15s; }
+            .dash-imposto:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+            .dash-imposto small { font-size: 0.65rem; color: #7f8c8d; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
+            .dash-imposto strong { font-size: 0.92rem; display: block; margin-top: 3px; }
+            .dash-imposto .imp-badge { font-size: 0.62rem; background: rgba(255,255,255,0.5); border-radius: 6px; padding: 2px 6px; margin-top: 4px; display: inline-block; }
+        `;
+        document.head.appendChild(st);
+    }
+
+    const dashImpostosEl = document.getElementById('dashImpostos');
+    if (dashImpostosEl) {
+        dashImpostosEl.innerHTML = _impostosMeta.map(imp => {
+            const val = _sImpostos[imp.key];
+            const pct = _totalImpostos > 0 ? ((val / _totalImpostos) * 100).toFixed(1) : '0.0';
+            return `
+            <div class="dash-imposto" style="border-left: 4px solid ${imp.cor};" onclick="verDetalheImposto('${imp.key}', '${imp.label}', '${imp.cor}')">
+                <small>${imp.label}</small>
+                <strong style="color: ${val > 0 ? imp.cor : '#aaa'};">R$ ${val.toFixed(2)}</strong>
+                <span class="imp-badge" style="color:${imp.cor}; border: 1px solid ${imp.cor};">${pct}%</span>
+            </div>`;
+        }).join('') + `
+        <div class="dash-imposto" style="border-left: 4px solid #2c3e50; background:#f0f4f8;" onclick="toggleGraficoImpostos()">
+            <small>TOTAL RETENÇÕES</small>
+            <strong style="color:#2c3e50;">R$ ${_totalImpostos.toFixed(2)}</strong>
+            <span class="imp-badge" style="color:#2c3e50; border:1px solid #2c3e50;">📊 Ver gráfico</span>
+        </div>`;
+    }
+
+    window.__sImpostos = _sImpostos;
+    window.__totalImpostos = _totalImpostos;
+    window.__impostosMeta = _impostosMeta;
+    window.__mesFiltroImpostos = mesF;
+
     // Lista Principal (Filtrada por Mês e Busca)
     const filtrados = db.filter(l => {
     const mesL = l.data ? l.data.substring(0, 7) : '';
@@ -1347,7 +1693,7 @@ renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
                             ${l.idFornecedor ? '<small style="color:#777;">[' + l.idFornecedor + ']</small> ' : ''}${l.fornecedor}
                         </span>
                         
-                        <div style="display: grid; grid-template-columns: 130px 120px 80px 1fr 60px 70px 130px; gap: 12px; align-items: end; font-size: 0.62rem; color: #666; border-top: 1px solid #f5f5f5; padding-top: 6px;">
+                        <div style="display: grid; grid-template-columns: 130px 120px 80px 1fr 60px 90px 70px 130px; gap: 12px; align-items: end; font-size: 0.62rem; color: #666; border-top: 1px solid #f5f5f5; padding-top: 6px;">
                             
                             <div style="text-align: left; overflow: hidden;">
                                 <b>CENTRO/RATEIO:</b><br>
@@ -1377,6 +1723,11 @@ renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
                             </div>
 
                             <div style="text-align: center;">
+                                <b>EMISSÃO:</b><br>
+                                <span style="font-weight: bold; color: var(--dark);">${l.dataEmissao ? l.dataEmissao.split('-').reverse().join('/') : '---'}</span>
+                            </div>
+
+                            <div style="text-align: center;">
                                 <b>ANEXO?</b><br>
                                 <span style="font-weight: bold; color: ${l.nfAnexada === 'sim' ? '#2ecc71' : '#e74c3c'};">
                                     ${(l.nfAnexada || 'nao').toUpperCase()}
@@ -1402,7 +1753,6 @@ renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
 
     if(tipo === 'banco') {
         document.getElementById('tituloLista').innerText = "Extrato Mensal: " + valorFiltro;
-        // Adicionado filtro de mês aqui também
         filtrados = db.filter(l => l.data && l.data.substring(0,7) === mesF && l.rateio && l.rateio.some(r => r.conta === valorFiltro));
     } else {
         document.getElementById('tituloLista').innerText = "Categoria Mensal: " + valorFiltro;
@@ -1420,6 +1770,88 @@ renderizarLista(filtrados.sort((a,b) => new Date(b.data) - new Date(a.data)));
     }).join('');
     
     abrirModal('modalListagem');
+}
+
+// ─── FUNÇÕES DO DASHBOARD DE IMPOSTOS ──────────────────────────────────────
+function verDetalheImposto(key, label, cor) {
+    const mesF = window.__mesFiltroImpostos || document.getElementById('filtroMes').value;
+    const filtrados = db.filter(l => l.data && l.data.substring(0, 7) === mesF && parseFloat(l[key]) > 0);
+    const total = filtrados.reduce((acc, l) => acc + (parseFloat(l[key]) || 0), 0);
+
+    const tituloEl = document.getElementById('detalheImpostoTitulo');
+    const listaEl  = document.getElementById('detalheImpostoLista');
+    const totalEl  = document.getElementById('detalheImpostoTotal');
+
+    if (tituloEl) tituloEl.innerHTML = `<span style="color:${cor};">🏛️ ${label}</span> — Retenções do Mês`;
+    if (totalEl)  totalEl.textContent = 'R$ ' + total.toFixed(2);
+
+    if (listaEl) {
+        if (filtrados.length === 0) {
+            listaEl.innerHTML = '<p style="text-align:center; color:#aaa; padding:20px;">Sem retenções de ' + label + ' neste mês.</p>';
+        } else {
+            listaEl.innerHTML = filtrados.sort((a,b) => (parseFloat(b[key])||0) - (parseFloat(a[key])||0)).map(l => {
+                const val = parseFloat(l[key]) || 0;
+                const data = l.data ? l.data.split('-').reverse().join('/') : '---';
+                return `
+                <div class="list-item" onclick="fecharModal('modalDetalheImposto'); editarLançamento('${l.id}')" style="cursor:pointer;">
+                    <div>
+                        <b style="font-size:0.85rem;">${l.fornecedor || '---'}</b>
+                        <small style="display:block; color:#999;">${data} · NF: ${l.nf || l.numNF || '---'}</small>
+                    </div>
+                    <b style="color:${cor}; white-space:nowrap;">R$ ${val.toFixed(2)}</b>
+                </div>`;
+            }).join('');
+        }
+    }
+    abrirModal('modalDetalheImposto');
+}
+
+function toggleGraficoImpostos() {
+    const grafico = document.getElementById('dashImpostosGrafico');
+    if (!grafico) return;
+    const visivel = grafico.style.display !== 'none';
+    if (visivel) { grafico.style.display = 'none'; return; }
+
+    const sI   = window.__sImpostos   || {};
+    const total = window.__totalImpostos || 0;
+    const meta  = window.__impostosMeta  || [];
+    const mes   = window.__mesFiltroImpostos || '';
+
+    const mesEl = document.getElementById('dashImpostosMes');
+    if (mesEl && mes) {
+        const [ano, m] = mes.split('-');
+        const nomes = ['','JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+        mesEl.textContent = (nomes[parseInt(m)] || m) + '/' + ano;
+    }
+
+    const barrasEl = document.getElementById('dashImpostosBarras');
+    if (barrasEl) {
+        barrasEl.innerHTML = meta.map(imp => {
+            const val = sI[imp.key] || 0;
+            const pct = total > 0 ? (val / total * 100).toFixed(1) : 0;
+            const largura = total > 0 ? Math.max(2, (val / total * 100)) : 0;
+            return `
+            <div>
+                <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:3px;">
+                    <span style="color:${imp.cor}; font-weight:bold;">${imp.label}</span>
+                    <span style="color:#444;">R$ ${val.toFixed(2)} <span style="color:#aaa;">(${pct}%)</span></span>
+                </div>
+                <div style="background:#f0f0f0; border-radius:6px; height:10px; overflow:hidden;">
+                    <div style="background:${imp.cor}; width:${largura}%; height:100%; border-radius:6px; transition:width 0.4s ease;"></div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    const totalEl = document.getElementById('dashImpostosTotal');
+    if (totalEl) totalEl.textContent = 'R$ ' + total.toFixed(2);
+
+    grafico.style.display = 'block';
+}
+
+function fecharGraficoImpostos() {
+    const grafico = document.getElementById('dashImpostosGrafico');
+    if (grafico) grafico.style.display = 'none';
 }
 function verDetalhes(tipo, valorFiltro) {
     const mesF = document.getElementById('filtroMes').value;
@@ -1473,6 +1905,13 @@ function verDetalhes(tipo, valorFiltro) {
         if (divP) divP.style.display = 'none';
         if (document.getElementById('containerRateio')) document.getElementById('containerRateio').innerHTML = '';
 
+        // Limpa campos de impostos/retenções
+        ['valPIS','valCOFINS','valINSS','valIR','valCSLL'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        recalcularRetencoes();
+
         // 5. TRATAMENTO DO ANEXO — limpa tudo completamente
         window.anexoBase64 = "";
         const inputAnexo = document.getElementById('anexo');
@@ -1500,7 +1939,7 @@ function verDetalhes(tipo, valorFiltro) {
  // Variável global para guardar dados da edição pendente
     let _dadosEdicaoPendente = null;
 
-    function salvarLancamento() {
+    async function salvarLancamento() {
     const id = document.getElementById('editId').value;
 
     // ── NOVO LANÇAMENTO (editId vazio) ──────────────────────────────
@@ -1539,17 +1978,20 @@ function verDetalhes(tipo, valorFiltro) {
             v: parseFloat(l.querySelector('.r-v') ? l.querySelector('.r-v').value : 0) || 0
         })).filter(r => r.conta);
 
-        // Remove o lançamento único original
+        // Remove o lançamento único original do db e do Firebase
         db = db.filter(t => t.id != id);
+        if (window.fbDeleteItem) await fbDeleteItem(id);
 
         // Cria as parcelas no lugar
+        const novasParcelas = [];
         for (let i = 0; i < qtd; i++) {
             const dataParcela = new Date(dataInicial + 'T12:00:00');
             dataParcela.setMonth(dataParcela.getMonth() + i);
 
-            db.push({
+            const novaParcela = {
                 id: Date.now() + Math.random(),
                 idGrupo: idGrupoNovo,
+                tipoGrupo: recorrencia,
                 parcela: `${i + 1}/${qtd}`,
                 doc: _resolverDoc(document.getElementById('numDoc').value, recorrencia, i),
                 fornecedor: document.getElementById('fornecedor').value,
@@ -1569,10 +2011,13 @@ function verDetalhes(tipo, valorFiltro) {
                 nfAnexada: document.getElementById('nfAnexada').value,
                 rateio: rateio,
                 anexo: anexoBase64
-            });
+            };
+            db.push(novaParcela);
+            novasParcelas.push(novaParcela);
         }
 
-        _finalizarSalvarEdicao();
+        // Passa todas as novas parcelas para serem salvas no Firebase
+        await _finalizarSalvarEdicao(novasParcelas);
         return;
     }
 
@@ -1591,6 +2036,7 @@ function verDetalhes(tipo, valorFiltro) {
         fornecedor: document.getElementById('fornecedor').value,
         descricao: document.getElementById('descricao').value,
         data: document.getElementById('data').value,
+        dataEmissao: document.getElementById('dataEmissao').value,
         valor: valorTotal,
         numNF: document.getElementById('numNF').value,
         nf: document.getElementById('numNF').value,
@@ -1600,9 +2046,14 @@ function verDetalhes(tipo, valorFiltro) {
         status: document.getElementById('status').value,
         tipo: document.getElementById('tipo').value,
         nfAnexada: document.getElementById('nfAnexada').value,
-        anexo: (anexoBase64 && !anexoBase64.startsWith("data:")) ? anexoBase64 : (anexoBase64 && anexoBase64.startsWith("data:") ? "__pendente_upload__" : ""),
+        anexo: (anexoBase64 && !anexoBase64.startsWith("data:")) ? anexoBase64 : (anexoUrl || itemOriginal.anexo || ""),
         rateio: _rateioEd,
-        tipoRateio: _tipoRateioEd
+        tipoRateio: _tipoRateioEd,
+        valPIS:    parseFloat(document.getElementById('valPIS').value)    || 0,
+        valCOFINS: parseFloat(document.getElementById('valCOFINS').value) || 0,
+        valINSS:   parseFloat(document.getElementById('valINSS').value)   || 0,
+        valIR:     parseFloat(document.getElementById('valIR').value)     || 0,
+        valCSLL:   parseFloat(document.getElementById('valCSLL').value)   || 0
     };
 
     // Se já é parcelado (tem idGrupo), pergunta como replicar
@@ -1618,70 +2069,151 @@ function verDetalhes(tipo, valorFiltro) {
         db[index] = { ...db[index], ...dadosEditados };
     }
 
-    _finalizarSalvarEdicao();
+    await _finalizarSalvarEdicao();
 }
 
-function confirmarSalvarEdicao(modo) {
+async function confirmarSalvarEdicao(modo) {
     if (!_dadosEdicaoPendente) return;
 
     const { id, dadosEditados, itemOriginal } = _dadosEdicaoPendente;
+    const novaData = dadosEditados.data;
+    const dataOriginal = itemOriginal.data;
+    const dataAlterada = novaData && novaData !== dataOriginal;
 
     if (modo === 'unico') {
-        // Altera apenas este registro
+        // Altera apenas este registro (data inclusa, sem afetar demais)
         const index = db.findIndex(t => t.id == id);
         if (index !== -1) {
             db[index] = { ...db[index], ...dadosEditados };
         }
     } 
     else if (modo === 'futuros') {
-        // Remove data e valor do spread para não sobrescrever as datas/valores individuais
+        // Pega todos os itens do grupo ordenados por data
+        const grupo = db
+            .filter(item => item.idGrupo === itemOriginal.idGrupo)
+            .sort((a, b) => a.data.localeCompare(b.data));
+
+        // Encontra o índice do item editado dentro do grupo ordenado
+        const idxNoGrupo = grupo.findIndex(item => String(item.id) === String(id));
+
         const { data: _d, valor: _v, ...dadosSemData } = dadosEditados;
+
         db = db.map(item => {
-            if (item.idGrupo === itemOriginal.idGrupo && item.data >= itemOriginal.data) {
-                return { ...item, ...dadosSemData, id: item.id, idGrupo: item.idGrupo, parcela: item.parcela, data: item.data, valor: item.valor };
+            if (item.idGrupo !== itemOriginal.idGrupo) return item;
+
+            const posNoGrupo = grupo.findIndex(g => String(g.id) === String(item.id));
+            // Só afeta este e os próximos
+            if (posNoGrupo < idxNoGrupo) return item;
+
+            // Recalcula a data: nova data do editado + N meses de distância
+            let novaDataItem = item.data;
+            if (dataAlterada) {
+                const offset = posNoGrupo - idxNoGrupo; // 0 = este, 1 = próximo, etc.
+                const base = new Date(novaData + 'T12:00:00');
+                base.setMonth(base.getMonth() + offset);
+                novaDataItem = base.toISOString().split('T')[0];
             }
-            return item;
+
+            return { ...item, ...dadosSemData, id: item.id, idGrupo: item.idGrupo, parcela: item.parcela, data: novaDataItem, valor: item.valor };
         });
     } 
     else if (modo === 'todos') {
+        // Pega todos os itens do grupo ordenados por data
+        const grupo = db
+            .filter(item => item.idGrupo === itemOriginal.idGrupo)
+            .sort((a, b) => a.data.localeCompare(b.data));
+
+        // Encontra a posição do item editado no grupo para calcular offset
+        const idxNoGrupo = grupo.findIndex(item => String(item.id) === String(id));
+
         const { data: _d, valor: _v, ...dadosSemData } = dadosEditados;
+
         db = db.map(item => {
-            if (item.idGrupo === itemOriginal.idGrupo) {
-                return { ...item, ...dadosSemData, id: item.id, idGrupo: item.idGrupo, parcela: item.parcela, data: item.data, valor: item.valor };
+            if (item.idGrupo !== itemOriginal.idGrupo) return item;
+
+            let novaDataItem = item.data;
+            if (dataAlterada) {
+                const posNoGrupo = grupo.findIndex(g => String(g.id) === String(item.id));
+                // Offset relativo ao item editado (pode ser negativo para anteriores)
+                const offset = posNoGrupo - idxNoGrupo;
+                const base = new Date(novaData + 'T12:00:00');
+                base.setMonth(base.getMonth() + offset);
+                novaDataItem = base.toISOString().split('T')[0];
             }
-            return item;
+
+            return { ...item, ...dadosSemData, id: item.id, idGrupo: item.idGrupo, parcela: item.parcela, data: novaDataItem, valor: item.valor };
         });
+    }
+
+    // Salva todos os itens do grupo afetados no Firebase
+    if (window.fbSaveItem) {
+        let itensParaSalvar = [];
+        if (modo === 'unico') {
+            const it = db.find(t => String(t.id) === String(id));
+            if (it) itensParaSalvar = [it];
+        } else if (modo === 'futuros' || modo === 'todos') {
+            itensParaSalvar = db.filter(item => item.idGrupo === itemOriginal.idGrupo);
+        }
+        for (const it of itensParaSalvar) {
+            await fbSaveItem(it);
+        }
     }
 
     fecharModal('modalConfirmarEdicao');
     _dadosEdicaoPendente = null;
-    _finalizarSalvarEdicao();
+    if (typeof atualizarSaldos === "function") atualizarSaldos();
+    fecharModal('modalLanc');
+    alert("Lançamento salvo com sucesso!");
 }
 
-async function _finalizarSalvarEdicao() {
-    // Captura o ID e o item ANTES de qualquer operação (evita erro de escopo)
+async function _finalizarSalvarEdicao(itensNovosGrupo) {
+    // itensNovosGrupo: array de itens quando convertendo único→parcelado/fixo
+    // Caso contrário, busca o item pelo ID atual
+
     const idAtual = document.getElementById('editId').value;
-    let itemAtual = db.find(t => String(t.id) == String(idAtual));
 
-    // 1. Upload do anexo para Cloudinary PRIMEIRO (somente se há base64 novo)
-    if (typeof cloudinaryUpload === 'function' && anexoBase64 && anexoBase64.startsWith('data:')) {
-        if (itemAtual) {
-            const url = await cloudinaryUpload(anexoBase64, itemAtual.id);
+    if (itensNovosGrupo && itensNovosGrupo.length > 0) {
+        // ── CONVERSÃO: único → parcelado/fixo ──────────────────────────
+        // O item original já foi deletado do Firebase pela salvarLancamento().
+        // Agora salva todas as novas parcelas.
+
+        // Upload do anexo para a primeira parcela (se houver)
+        if (typeof cloudinaryUpload === 'function' && anexoBase64 && anexoBase64.startsWith('data:')) {
+            const url = await cloudinaryUpload(anexoBase64, itensNovosGrupo[0].id);
             if (url) {
-                itemAtual.anexo = url;
-                console.log('✅ Cloudinary upload OK:', url);
-            } else {
-                console.warn('⚠️ Cloudinary upload falhou, anexo não salvo.');
+                itensNovosGrupo.forEach(it => it.anexo = url);
+                console.log('✅ Cloudinary upload OK (grupo):', url);
             }
+            anexoBase64 = '';
         }
-        anexoBase64 = '';
-    } else if (itemAtual) {
-        // Preserva a URL existente do Cloudinary (ou limpa se foi removido)
-        itemAtual.anexo = anexoUrl || itemAtual.anexo || '';
-    }
 
-    // 2. Salva APENAS o item alterado no Firebase (economiza cota)
-    if (window.fbSaveItem && itemAtual) await fbSaveItem(itemAtual);
+        if (window.fbSaveItem) {
+            for (const it of itensNovosGrupo) {
+                await fbSaveItem(it);
+            }
+            console.log('✅ Grupo salvo: ' + itensNovosGrupo.length + ' parcelas');
+        }
+    } else {
+        // ── EDIÇÃO NORMAL (lançamento único ou parcela individual) ──────
+        let itemAtual = db.find(t => String(t.id) == String(idAtual));
+
+        if (typeof cloudinaryUpload === 'function' && anexoBase64 && anexoBase64.startsWith('data:')) {
+            if (itemAtual) {
+                const url = await cloudinaryUpload(anexoBase64, itemAtual.id);
+                if (url) {
+                    itemAtual.anexo = url;
+                    console.log('✅ Cloudinary upload OK:', url);
+                } else {
+                    console.warn('⚠️ Cloudinary upload falhou, anexo não salvo.');
+                }
+            }
+            anexoBase64 = '';
+        } else if (itemAtual) {
+            itemAtual.anexo = anexoUrl || itemAtual.anexo || '';
+        }
+
+        if (window.fbSaveItem && itemAtual) await fbSaveItem(itemAtual);
+    }
 
     anexoBase64 = '';
     anexoUrl = '';
@@ -1709,10 +2241,24 @@ function abrirEditar(id) {
     document.getElementById('tipo').value = item.tipo || 'Despesa';
 
     // IMPORTANTE: Carrega o anexo do banco para a memória global
-    anexoBase64 = item.anexo || ""; 
+    // Se o anexo era um marcador temporário (upload falhou), ignora
+    const anexoSalvo = item.anexo || "";
+    if (anexoSalvo && anexoSalvo !== '__pendente_upload__') {
+        // É uma URL real do Drive ou base64 temporário
+        if (anexoSalvo.startsWith('http') || anexoSalvo.startsWith('https')) {
+            anexoUrl = anexoSalvo;
+            anexoBase64 = '';
+        } else {
+            anexoBase64 = anexoSalvo;
+            anexoUrl = '';
+        }
+    } else {
+        anexoBase64 = '';
+        anexoUrl = '';
+    }
     
     // Atualiza a visão dos botões de anexo
-    if (anexoBase64) {
+    if (anexoUrl || anexoBase64) {
         document.getElementById('btnVerAnexo').style.display = 'inline-block';
         document.getElementById('btnRemoverAnexo').style.display = 'inline-block';
     } else {
@@ -1746,6 +2292,22 @@ function abrirEditar(id) {
         const inputValor = l.querySelector('.r-v');
         if(inputValor) inputValor.value = ((total * p) / 100).toFixed(2);
     });
+    recalcularRetencoes();
+}
+
+function recalcularRetencoes() {
+    const total = parseFloat(document.getElementById('valorTotal').value) || 0;
+    const pis    = parseFloat(document.getElementById('valPIS').value)    || 0;
+    const cofins = parseFloat(document.getElementById('valCOFINS').value) || 0;
+    const inss   = parseFloat(document.getElementById('valINSS').value)   || 0;
+    const ir     = parseFloat(document.getElementById('valIR').value)     || 0;
+    const csll   = parseFloat(document.getElementById('valCSLL').value)   || 0;
+    const totalRet = pis + cofins + inss + ir + csll;
+    const liquido  = total - totalRet;
+    const elTot = document.getElementById('totalRetencoes');
+    const elLiq = document.getElementById('valorLiquidoCalc');
+    if (elTot) elTot.textContent = 'R$ ' + totalRet.toFixed(2).replace('.', ',');
+    if (elLiq) elLiq.textContent = 'R$ ' + liquido.toFixed(2).replace('.', ',');
 }
 
   function editarLançamento(id) {
@@ -1770,13 +2332,21 @@ function abrirEditar(id) {
         document.getElementById('status').value = l.status || 'pendente';
         // Preserva o tipo de recorrência correto
         const recEl = document.getElementById('recorrencia');
-        if (recEl) recEl.value = l.idGrupo ? (l.parcela ? 'parcelado' : 'fixo') : 'unico';
+        if (recEl) recEl.value = l.idGrupo ? (l.tipoGrupo || (l.parcela ? 'parcelado' : 'fixo')) : 'unico';
         document.getElementById('qtdParcelas').value = 1;
 	document.getElementById('btnExcluir').style.display = 'block';
         document.getElementById('nfAnexada').value = l.nfAnexada || 'nenhum';
-        // 2. Reseta e carrega o anexo (URL do Cloudinary, nunca base64)
+        // Carrega campos de retenções/impostos
+        document.getElementById('valPIS').value    = l.valPIS    || '';
+        document.getElementById('valCOFINS').value = l.valCOFINS || '';
+        document.getElementById('valINSS').value   = l.valINSS   || '';
+        document.getElementById('valIR').value     = l.valIR     || '';
+        document.getElementById('valCSLL').value   = l.valCSLL   || '';
+        recalcularRetencoes();
+        // 2. Reseta e carrega o anexo (URL do Drive, nunca base64)
         anexoBase64 = '';
-        anexoUrl = l.anexo || '';
+        // Ignora o marcador temporário de upload pendente
+        anexoUrl = (l.anexo && l.anexo !== '__pendente_upload__') ? l.anexo : '';
         const btnVer = document.getElementById('btnVerAnexo');
         const btnExcluirAnexo = document.getElementById('btnRemoverAnexo');
 
@@ -1796,13 +2366,15 @@ function abrirEditar(id) {
                 l.rateio.forEach(r => {
                     const div = document.createElement('div');
                     div.className = 'rateio-linha';
+                    const opcoes = contasBancos.map(c => `<option value="${c}" ${c===r.conta?'selected':''}>${c}</option>`).join('');
                     div.innerHTML = `
-                        <input type="text" class="r-c" placeholder="Centro" value="${r.conta}" style="width:50%">
-                        <input type="number" class="r-p" placeholder="%" value="${r.p}" style="width:20%" oninput="recalcularRateio('p')">
-                        <input type="number" class="r-v" placeholder="R$" value="${r.v}" style="width:30%" oninput="recalcularRateio('v')">
+                        <select class="r-c" onchange="recalcularRateio()">${opcoes}</select>
+                        <input type="number" class="r-p" placeholder="%" value="${r.p || 0}" oninput="recalcularRateio()">
+                        <input type="number" class="r-v" placeholder="R$" value="${r.v || 0}" readonly style="background:#f9f9f9; color:#666;">
+                        <button onclick="this.parentElement.remove(); recalcularRateio();">&times;</button>
                     `;
                     container.appendChild(div);
-                } );
+                });
             }
         }
 
@@ -1858,23 +2430,28 @@ function executarExclusao(modo) {
     // Ou usa o número do pedido fixo para agrupar
     const docBase = atual.doc; 
 
+    let idsParaExcluir = [];
+
     if (modo === 'unico') {
+        idsParaExcluir = [id];
         db = db.filter(item => item.id != id);
     } 
     else if (modo === 'futuros') {
-        // Exclui o atual e qualquer um do mesmo documento com data igual ou maior
-        db = db.filter(item => {
-            const mesmoDoc = (item.doc === docBase);
-            const dataFutura = (item.data >= atual.data);
-            return !(mesmoDoc && dataFutura);
-        });
+        // Coleta IDs antes de filtrar
+        idsParaExcluir = db
+            .filter(item => item.doc === docBase && item.data >= atual.data)
+            .map(item => item.id);
+        db = db.filter(item => !(item.doc === docBase && item.data >= atual.data));
     } 
     else if (modo === 'todos') {
-        // Exclui todos que tenham o mesmo número de documento
+        // Coleta IDs antes de filtrar
+        idsParaExcluir = db
+            .filter(item => item.doc === docBase)
+            .map(item => item.id);
         db = db.filter(item => item.doc !== docBase);
     }
 
-    finalizarExclusao();
+    finalizarExclusao(idsParaExcluir);
 }
 
 function finalizarExclusao(idsExcluidos) {
@@ -2117,11 +2694,17 @@ function _resolverDoc(docDigitado, recorrencia, indiceParcela) {
             nfAnexada: document.getElementById('nfAnexada').value,
             rateio: rateio,
             tipoRateio: document.getElementById('selectModeloPronto') ? document.getElementById('selectModeloPronto').value : '',
-            anexo: finalAnexoUrl
+            anexo: finalAnexoUrl,
+            valPIS:    parseFloat(document.getElementById('valPIS').value)    || 0,
+            valCOFINS: parseFloat(document.getElementById('valCOFINS').value) || 0,
+            valINSS:   parseFloat(document.getElementById('valINSS').value)   || 0,
+            valIR:     parseFloat(document.getElementById('valIR').value)     || 0,
+            valCSLL:   parseFloat(document.getElementById('valCSLL').value)   || 0
         };
 
         if (isParcelado) {
             novoItem.idGrupo = idGrupoNovo;
+            novoItem.tipoGrupo = recorrencia;
             novoItem.parcela = `${i + 1}/${qtdParcelas}`;
         }
 
@@ -2397,6 +2980,192 @@ async function fazerLogin() {
     }
 }
 
+function mostrarTelaCadastro() {
+    document.getElementById('telaLogin').style.display = 'none';
+    document.getElementById('telaCadastro').style.display = 'block';
+    document.getElementById('cadErro').textContent = '';
+}
+function mostrarTelaLogin() {
+    document.getElementById('telaCadastro').style.display = 'none';
+    document.getElementById('telaLogin').style.display = 'block';
+    document.getElementById('loginErro').textContent = '';
+}
+
+async function criarContaComConvite() {
+    const email   = document.getElementById('cadEmail').value.trim().toLowerCase();
+    const senha   = document.getElementById('cadSenha').value;
+    const senha2  = document.getElementById('cadSenha2').value;
+    const convite = document.getElementById('cadConvite').value.trim().toUpperCase();
+    const erro    = document.getElementById('cadErro');
+    const btn     = document.getElementById('btnCriarConta');
+
+    erro.textContent = '';
+    if (!email || !senha || !convite) { erro.textContent = 'Preencha todos os campos.'; return; }
+    if (senha !== senha2) { erro.textContent = 'As senhas não coincidem.'; return; }
+    if (senha.length < 6) { erro.textContent = 'Senha deve ter mínimo 6 caracteres.'; return; }
+
+    btn.textContent = 'Verificando...';
+    btn.disabled = true;
+
+    try {
+        // Busca convite no Firebase
+        const dados = await window.fbLoadObject('config', 'convites');
+        const convites = dados && dados.lista ? dados.lista : [];
+        const idx = convites.findIndex(c => c.codigo === convite);
+
+        if (idx === -1) { erro.textContent = 'Código de convite inválido.'; btn.textContent = 'CRIAR CONTA'; btn.disabled = false; return; }
+
+        const conv = convites[idx];
+        // Verifica se já foi usado
+        if (conv.usado) { erro.textContent = 'Este código já foi utilizado.'; btn.textContent = 'CRIAR CONTA'; btn.disabled = false; return; }
+        // Verifica validade (24h)
+        const agora = Date.now();
+        if (agora > conv.expiraEm) { erro.textContent = 'Código expirado. Solicite um novo convite.'; btn.textContent = 'CRIAR CONTA'; btn.disabled = false; return; }
+
+        // Cria o usuário no Firebase Auth
+        const resultado = await window.fbCriarUsuario(email, senha);
+        if (resultado !== true) { erro.textContent = resultado; btn.textContent = 'CRIAR CONTA'; btn.disabled = false; return; }
+
+        // Marca convite como usado
+        convites[idx].usado = true;
+        convites[idx].usadoPor = email;
+        await window.fbSaveObject('config', 'convites', { lista: convites });
+
+        // Salva permissão do novo usuário
+        const permDados = await window.fbLoadObject('config', 'usuarios_permissoes');
+        let listaPerms = permDados && permDados.lista ? permDados.lista : [];
+        listaPerms.push({ email, permissao: conv.permissao });
+        await window.fbSaveObject('config', 'usuarios_permissoes', { lista: listaPerms });
+        atualizarPermissoesMemoria(listaPerms);
+
+        erro.style.color = 'green';
+        erro.textContent = '✅ Conta criada! Fazendo login...';
+        // Faz login automaticamente
+        setTimeout(async () => {
+            await window.fbLogin(email, senha);
+        }, 1000);
+
+    } catch(e) {
+        erro.textContent = 'Erro: ' + e.message;
+        btn.textContent = 'CRIAR CONTA';
+        btn.disabled = false;
+    }
+}
+
+// ─── MODO SOMENTE LEITURA ────────────────────────────────────────────────────
+function aplicarModoSomenteLeitura() {
+    const msg = () => { alert('⛔ Acesso restrito. Você está no modo somente leitura.'); return false; };
+
+    // Bloqueia funções de edição/exclusão mas PERMITE visualizar
+    window.salvarLancamento        = msg;
+    window.salvarNovoLancamento    = msg;
+    window.excluirLançamento       = msg;
+    window.excluirItem             = msg;
+    window.salvarModeloRateio      = msg;
+    window.excluirModelo           = msg;
+    window.salvarNovoItem          = msg;
+    window.salvarConfigCloudinary  = msg;
+
+    // Permite abrir lançamento para VISUALIZAR, mas esconde botões de ação dentro do modal
+    const _editarLancamento = window.editarLançamento;
+    window.editarLançamento = function(...args) {
+        if (_editarLancamento) _editarLancamento(...args);
+        setTimeout(() => {
+            esconderBotoesSomenteLeitura();
+            // Desabilita inputs dentro do modal de lançamento
+            const modal = document.getElementById('modalLanc');
+            if (modal) {
+                modal.querySelectorAll('input, select, textarea').forEach(el => el.disabled = true);
+            }
+        }, 150);
+    };
+
+    // Intercepta abrirModal para esconder botões dinamicamente
+    const _abrirModal = window.abrirModal;
+    window.abrirModal = function(...args) {
+        if (_abrirModal) _abrirModal(...args);
+        setTimeout(esconderBotoesSomenteLeitura, 150);
+    };
+
+    // Esconde botões já visíveis agora e continua por 10s
+    esconderBotoesSomenteLeitura();
+    let count = 0;
+    const intervalo = setInterval(() => {
+        esconderBotoesSomenteLeitura();
+        if (++count >= 10) clearInterval(intervalo);
+    }, 1000);
+
+    // Aviso visual que some após 4 segundos
+    const aviso = document.createElement('div');
+    aviso.id = 'avisoSomenteLeitura';
+    aviso.innerHTML = '👁️ Modo somente leitura — você não pode fazer alterações';
+    aviso.style.cssText = 'background:#f1c40f;color:#333;text-align:center;padding:8px;font-size:0.85rem;font-weight:bold;position:fixed;top:0;left:0;width:100%;z-index:99999;transition:opacity 1s;';
+    document.body.appendChild(aviso);
+    setTimeout(() => { aviso.style.opacity = '0'; }, 3000);
+    setTimeout(() => { aviso.remove(); }, 4000);
+
+    console.log('🔒 Modo somente leitura aplicado com sucesso.');
+}
+
+function aplicarModoCriacao() {
+    // No modo criação: pode criar lançamentos mas não pode editar ou excluir existentes
+    const msgEditar = () => { alert('⛔ Acesso restrito. Você não pode editar lançamentos existentes.'); return false; };
+    const msgExcluir = () => { alert('⛔ Acesso restrito. Você não pode excluir lançamentos.'); return false; };
+
+    window.excluirLançamento = msgExcluir;
+    window.excluirItem       = msgExcluir;
+    window.excluirModelo     = msgExcluir;
+
+    // Intercepta edição de lançamento existente (mas permite criar novo)
+    const _editarLanc = window.editarLançamento;
+    window.editarLançamento = function(...args) {
+        msgEditar();
+    };
+
+    // Esconde botões de excluir
+    const intervalo = setInterval(() => {
+        document.querySelectorAll('button').forEach(btn => {
+            const txt = btn.textContent.trim().toUpperCase();
+            const ac  = (btn.getAttribute('onclick') || '').toLowerCase();
+            if (txt === 'EXCLUIR' || ac.includes('excluir')) btn.style.display = 'none';
+        });
+        ['btnExcluir'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+    }, 1000);
+    setTimeout(() => clearInterval(intervalo), 10000);
+
+    // Aviso visual que some após 4 segundos
+    const aviso = document.createElement('div');
+    aviso.innerHTML = '✏️ Modo criação — você pode criar lançamentos, mas não editar ou excluir';
+    aviso.style.cssText = 'background:#3498db;color:#fff;text-align:center;padding:8px;font-size:0.85rem;font-weight:bold;position:fixed;top:0;left:0;width:100%;z-index:99999;transition:opacity 1s;';
+    document.body.appendChild(aviso);
+    setTimeout(() => { aviso.style.opacity = '0'; }, 3000);
+    setTimeout(() => { aviso.remove(); }, 4000);
+    console.log('✏️ Modo criação aplicado com sucesso.');
+}
+
+function esconderBotoesSomenteLeitura() {
+    // Esconde todos os botões que contenham texto de ação
+    document.querySelectorAll('button').forEach(btn => {
+        const txt = btn.textContent.trim().toUpperCase();
+        const ac  = (btn.getAttribute('onclick') || '').toLowerCase();
+        if (
+            txt === 'SALVAR' || txt === 'EXCLUIR' || txt === '+ LANÇAMENTO' ||
+            txt === 'SALVAR MODELO' || txt === '+' ||
+            ac.includes('salvar') || ac.includes('excluir')
+        ) {
+            btn.style.display = 'none';
+        }
+    });
+    // Esconde pelo ID também
+    ['btnExcluir','btnSalvar','btnNovoLancamento'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+}
+
 // Enter key no campo senha
 document.addEventListener('DOMContentLoaded', () => {
     const s = document.getElementById('loginSenha');
@@ -2417,6 +3186,45 @@ function fazerLogout() {
 // ─── GOOGLE DRIVE UPLOAD ─────────────────────────────────────────────────────
 let GDRIVE_TOKEN = '';
 let GDRIVE_FOLDER_ID = null; // ID da pasta "Mobitex" no Drive
+
+// Credenciais OAuth para renovação automática do token
+const GDRIVE_CLIENT_ID     = '194303589170-jpt5s4kot4npr9b6iorg9oeu48kbbpda.apps.googleusercontent.com';
+const GDRIVE_CLIENT_SECRET = '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';
+const GDRIVE_REFRESH_TOKEN = '1//04XbC2FcVslbuCgYIARAAGAQSNwF-L9Iraol79USBTDKpkLlTdEU7H1gv0eayJrOGnsE0UWA7a6Zx3h2TaQVkw_Ashnr7CXdhZ-A';
+
+// Renova o Access Token automaticamente usando o Refresh Token
+async function renovarGdriveToken() {
+    try {
+        console.log('🔄 Renovando token do Google Drive...');
+        const res = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id:     GDRIVE_CLIENT_ID,
+                client_secret: GDRIVE_CLIENT_SECRET,
+                refresh_token: GDRIVE_REFRESH_TOKEN,
+                grant_type:    'refresh_token'
+            })
+        });
+        const data = await res.json();
+        if (data.access_token) {
+            GDRIVE_TOKEN = data.access_token;
+            console.log('✅ Token do Google Drive renovado com sucesso!');
+            return true;
+        } else {
+            console.error('❌ Erro ao renovar token:', data);
+            return false;
+        }
+    } catch(e) {
+        console.error('❌ Erro ao renovar token:', e);
+        return false;
+    }
+}
+
+// Inicializa o token automaticamente ao carregar o sistema
+renovarGdriveToken();
+// Renova a cada 50 minutos (token expira em 60 min)
+setInterval(renovarGdriveToken, 50 * 60 * 1000);
 
 // Busca ou cria a pasta "Mobitex" no Google Drive
 async function getOrCreateMobitexFolder() {
@@ -2451,8 +3259,14 @@ async function getOrCreateMobitexFolder() {
 
 async function cloudinaryUpload(base64Data, itemId) {
     if (!base64Data || !base64Data.startsWith('data:')) return null;
+
+    // Se não tem token ainda, tenta renovar primeiro
     if (!GDRIVE_TOKEN) {
-        mostrarErroFb('Google Drive não configurado. Clique em ☁️ para informar o token.');
+        console.log('⏳ Aguardando token do Google Drive...');
+        await renovarGdriveToken();
+    }
+    if (!GDRIVE_TOKEN) {
+        mostrarErroFb('Google Drive não configurado. Não foi possível obter token.');
         return null;
     }
     try {
@@ -2478,10 +3292,25 @@ async function cloudinaryUpload(base64Data, itemId) {
         const form = new FormData();
         form.append('metadata', metaBlob);
         form.append('file', blob);
-        const res = await fetch(
+        let res = await fetch(
             'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
             { method: 'POST', headers: { 'Authorization': 'Bearer ' + GDRIVE_TOKEN }, body: form }
         );
+        // Se token expirou, renova e tenta de novo
+        if (res.status === 401) {
+            console.log('🔄 Token expirado, renovando e tentando novamente...');
+            await renovarGdriveToken();
+            GDRIVE_FOLDER_ID = null; // reseta pasta para buscar novamente
+            const folderId2 = await getOrCreateMobitexFolder();
+            if (folderId2) fileMeta.parents = [folderId2];
+            const form2 = new FormData();
+            form2.append('metadata', new Blob([JSON.stringify(fileMeta)], { type: 'application/json' }));
+            form2.append('file', blob);
+            res = await fetch(
+                'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+                { method: 'POST', headers: { 'Authorization': 'Bearer ' + GDRIVE_TOKEN }, body: form2 }
+            );
+        }
         const data = await res.json();
         if (!data.id) {
             const msg = data.error ? data.error.message : JSON.stringify(data);
@@ -2534,5 +3363,255 @@ function exportarBackupCompleto() {
     alert('Backup gerado! ' + lancamentosSemBase64.length + ' lancamentos exportados.');
 }
 </script>
+
 </body>
-</html>
+<!-- MODAL GERENCIAR USUARIOS -->
+<div id="modalGerenciarUsuarios" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:12px; padding:28px; width:95%; max-width:520px; max-height:90vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h2 style="margin:0; font-size:1.2rem;">&#128101; Gerenciar Usuários</h2>
+      <button onclick="fecharGerenciarUsuarios()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;">&#x2715;</button>
+    </div>
+    <div id="guSenhaArea">
+      <p style="color:#555; margin-bottom:12px;">Digite a senha de administrador:</p>
+      <input id="guSenhaInput" type="password" placeholder="Senha" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:1rem;box-sizing:border-box;" onkeydown="if(event.key==='Enter') verificarSenhaGU()">
+      <p id="guSenhaErro" style="color:red;font-size:0.85rem;margin-top:6px;"></p>
+      <button onclick="verificarSenhaGU()" style="margin-top:12px;width:100%;padding:12px;background:#2c3e50;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;">ENTRAR</button>
+    </div>
+    <div id="guPainelArea" style="display:none;">
+      <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin-bottom:20px;">
+        <p style="font-weight:bold;margin:0 0 10px;">&#10133; Adicionar / Atualizar Usuário</p>
+        <input id="guNovoEmail" type="email" placeholder="E-mail do usuário" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;box-sizing:border-box;margin-bottom:8px;">
+        <select id="guNovaPermissao" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;box-sizing:border-box;margin-bottom:10px;">
+          <option value="admin">&#128273; Admin — edita, cria e exclui tudo</option>
+          <option value="criacao">&#9999; Criação — só pode criar lançamentos</option>
+          <option value="visualizador">&#128065; Somente leitura — só visualiza</option>
+        </select>
+        <button onclick="adicionarUsuarioGU()" style="width:100%;padding:10px;background:#27ae60;color:#fff;border:none;border-radius:6px;font-size:0.95rem;cursor:pointer;font-weight:bold;">SALVAR PERMISSÃO</button>
+        <p id="guAddMsg" style="font-size:0.85rem;margin-top:6px;"></p>
+      </div>
+      <!-- Gerador de convites -->
+      <div style="background:#fff3cd;border-radius:8px;padding:16px;margin-bottom:20px;border:1px solid #ffc107;">
+        <p style="font-weight:bold;margin:0 0 10px;">&#128140; Gerar Código de Convite</p>
+        <select id="guConvitePermissao" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;box-sizing:border-box;margin-bottom:10px;">
+          <option value="admin">&#128273; Admin</option>
+          <option value="criacao">&#9999; Criação</option>
+          <option value="visualizador">&#128065; Somente leitura</option>
+        </select>
+        <button onclick="gerarConviteGU()" style="width:100%;padding:10px;background:#f39c12;color:#fff;border:none;border-radius:6px;font-size:0.95rem;cursor:pointer;font-weight:bold;">GERAR CONVITE</button>
+        <div id="guConviteResultado" style="margin-top:10px;"></div>
+      </div>
+
+      <p style="font-weight:bold;margin:0 0 10px;">&#128203; Usuários cadastrados</p>
+      <div id="guListaUsuarios"><p style="color:#999;font-size:0.9rem;">Carregando...</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const GU_SENHA = 'Mobitex2026#';
+
+function abrirGerenciarUsuarios() {
+    document.getElementById('modalGerenciarUsuarios').style.display = 'flex';
+    document.getElementById('guSenhaArea').style.display = 'block';
+    document.getElementById('guPainelArea').style.display = 'none';
+    document.getElementById('guSenhaInput').value = '';
+    document.getElementById('guSenhaErro').textContent = '';
+    setTimeout(() => document.getElementById('guSenhaInput').focus(), 100);
+}
+
+function fecharGerenciarUsuarios() {
+    document.getElementById('modalGerenciarUsuarios').style.display = 'none';
+}
+
+function verificarSenhaGU() {
+    const senha = document.getElementById('guSenhaInput').value;
+    if (senha === GU_SENHA) {
+        document.getElementById('guSenhaArea').style.display = 'none';
+        document.getElementById('guPainelArea').style.display = 'block';
+        carregarUsuariosGU();
+    } else {
+        document.getElementById('guSenhaErro').textContent = 'Senha incorreta.';
+    }
+}
+
+async function carregarUsuariosGU() {
+    const div = document.getElementById('guListaUsuarios');
+    div.innerHTML = '<p style="color:#999;font-size:0.9rem;">Carregando...</p>';
+    try {
+        const dados = await window.fbLoadObject('config', 'usuarios_permissoes');
+        const usuarios = dados && dados.lista ? dados.lista : [];
+        if (usuarios.length === 0) {
+            div.innerHTML = '<p style="color:#999;font-size:0.9rem;">Nenhum usuário cadastrado ainda.</p>';
+            return;
+        }
+        const labelPerm = (p) => {
+            if (p === 'admin') return '<span style="color:#27ae60;">&#128273; Admin</span>';
+            if (p === 'criacao') return '<span style="color:#3498db;">&#9999; Criação</span>';
+            return '<span style="color:#e67e22;">&#128065; Somente leitura</span>';
+        };
+        div.innerHTML = usuarios.map((u, i) => `
+            <div id="gu_row_${i}" style="padding:10px 12px;background:${i%2===0?'#f8f9fa':'#fff'};border-radius:6px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="font-size:0.9rem;font-weight:bold;color:#2c3e50;">${u.email}</div>
+                        <div style="font-size:0.78rem;" id="gu_label_${i}">${labelPerm(u.permissao)}</div>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <button onclick="editarPermissaoGU('${u.email}', '${u.permissao}', ${i})" style="background:#3498db;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:0.8rem;">✏️</button>
+                        <button onclick="removerUsuarioGU('${u.email}')" style="background:#e74c3c;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:0.8rem;">🗑️</button>
+                    </div>
+                </div>
+                <div id="gu_edit_${i}" style="display:none;margin-top:10px;">
+                    <select id="gu_sel_${i}" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:0.85rem;margin-bottom:8px;">
+                        <option value="admin" ${u.permissao==='admin'?'selected':''}>&#128273; Admin — edita, cria e exclui tudo</option>
+                        <option value="criacao" ${u.permissao==='criacao'?'selected':''}>&#9999; Criação — só pode criar lançamentos</option>
+                        <option value="visualizador" ${u.permissao==='visualizador'?'selected':''}>&#128065; Somente leitura — só visualiza</option>
+                    </select>
+                    <div style="display:flex;gap:6px;">
+                        <button onclick="salvarPermissaoGU('${u.email}', ${i})" style="flex:1;padding:8px;background:#27ae60;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:bold;">Salvar</button>
+                        <button onclick="cancelarEditarPermissaoGU(${i})" style="flex:1;padding:8px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } catch(e) {
+        div.innerHTML = '<p style="color:red;font-size:0.9rem;">Erro ao carregar usuários.</p>';
+    }
+}
+
+async function gerarConviteGU() {
+    const permissao = document.getElementById('guConvitePermissao').value;
+    const resultado = document.getElementById('guConviteResultado');
+    resultado.innerHTML = '<p style="color:#999;font-size:0.85rem;">Gerando...</p>';
+
+    try {
+        // Gera código aleatório de 8 caracteres
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let codigo = '';
+        for (let i = 0; i < 8; i++) codigo += chars[Math.floor(Math.random() * chars.length)];
+
+        const expiraEm = Date.now() + (24 * 60 * 60 * 1000); // 24 horas
+
+        const dados = await window.fbLoadObject('config', 'convites');
+        let lista = dados && dados.lista ? dados.lista : [];
+        // Remove convites expirados
+        lista = lista.filter(c => !c.usado && Date.now() < c.expiraEm);
+        lista.push({ codigo, permissao, expiraEm, usado: false, criadoEm: Date.now() });
+        await window.fbSaveObject('config', 'convites', { lista });
+
+        const labelPerm = permissao === 'admin' ? 'Admin' : permissao === 'criacao' ? 'Criação' : 'Somente leitura';
+        resultado.innerHTML = `
+            <div style="background:#fff;border:2px dashed #f39c12;border-radius:8px;padding:12px;text-align:center;">
+                <p style="margin:0 0 6px;font-size:0.8rem;color:#555;">Código gerado — válido por 24h — uso único</p>
+                <div style="font-size:1.5rem;font-weight:bold;letter-spacing:4px;color:#2c3e50;">${codigo}</div>
+                <p style="margin:6px 0 0;font-size:0.78rem;color:#e67e22;">Permissão: ${labelPerm}</p>
+                <button onclick="navigator.clipboard.writeText('${codigo}').then(()=>this.textContent='✅ Copiado!')" 
+                    style="margin-top:8px;padding:6px 16px;background:#2c3e50;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;">
+                    Copiar código
+                </button>
+            </div>`;
+    } catch(e) {
+        resultado.innerHTML = '<p style="color:red;font-size:0.85rem;">Erro ao gerar convite.</p>';
+    }
+}
+
+async function adicionarUsuarioGU() {
+    const email = document.getElementById('guNovoEmail').value.trim().toLowerCase();
+    const permissao = document.getElementById('guNovaPermissao').value;
+    const msg = document.getElementById('guAddMsg');
+    if (!email || !email.includes('@')) { msg.style.color='red'; msg.textContent='E-mail inválido.'; return; }
+    try {
+        const dados = await window.fbLoadObject('config', 'usuarios_permissoes');
+        let lista = dados && dados.lista ? dados.lista : [];
+        const idx = lista.findIndex(u => u.email === email);
+        if (idx >= 0) lista[idx].permissao = permissao;
+        else lista.push({ email, permissao });
+        await window.fbSaveObject('config', 'usuarios_permissoes', { lista });
+        atualizarPermissoesMemoria(lista);
+        msg.style.color='green'; msg.textContent='Salvo com sucesso!';
+        document.getElementById('guNovoEmail').value = '';
+        carregarUsuariosGU();
+    } catch(e) {
+        msg.style.color='red'; msg.textContent='Erro ao salvar.';
+    }
+}
+
+function editarPermissaoGU(email, permissaoAtual, idx) {
+    document.getElementById('gu_edit_' + idx).style.display = 'block';
+}
+
+function cancelarEditarPermissaoGU(idx) {
+    document.getElementById('gu_edit_' + idx).style.display = 'none';
+}
+
+async function salvarPermissaoGU(email, idx) {
+    const nova = document.getElementById('gu_sel_' + idx).value;
+    try {
+        const dados = await window.fbLoadObject('config', 'usuarios_permissoes');
+        let lista = dados && dados.lista ? dados.lista : [];
+        const i = lista.findIndex(u => u.email === email);
+        if (i >= 0) lista[i].permissao = nova;
+        await window.fbSaveObject('config', 'usuarios_permissoes', { lista });
+        atualizarPermissoesMemoria(lista);
+        // Atualiza label e fecha o editor
+        const labelPerm = (p) => {
+            if (p === 'admin') return '<span style="color:#27ae60;">&#128273; Admin</span>';
+            if (p === 'criacao') return '<span style="color:#3498db;">&#9999; Criação</span>';
+            return '<span style="color:#e67e22;">&#128065; Somente leitura</span>';
+        };
+        document.getElementById('gu_label_' + idx).innerHTML = labelPerm(nova);
+        document.getElementById('gu_edit_' + idx).style.display = 'none';
+        // Feedback visual rápido
+        const row = document.getElementById('gu_row_' + idx);
+        row.style.background = '#d4edda';
+        setTimeout(() => { row.style.background = idx%2===0 ? '#f8f9fa' : '#fff'; }, 1500);
+    } catch(e) {
+        alert('Erro ao salvar permissão.');
+    }
+}
+
+async function removerUsuarioGU(email) {
+    if (!confirm('Remover permissão de ' + email + '?')) return;
+    try {
+        const dados = await window.fbLoadObject('config', 'usuarios_permissoes');
+        let lista = dados && dados.lista ? dados.lista : [];
+        lista = lista.filter(u => u.email !== email);
+        await window.fbSaveObject('config', 'usuarios_permissoes', { lista });
+        atualizarPermissoesMemoria(lista);
+        carregarUsuariosGU();
+    } catch(e) {
+        alert('Erro ao remover.');
+    }
+}
+
+function atualizarPermissoesMemoria(lista) {
+    window.USUARIOS_SOMENTE_LEITURA = lista
+        .filter(u => u.permissao === 'visualizador')
+        .map(u => u.email);
+    window.USUARIOS_SOMENTE_CRIACAO = lista
+        .filter(u => u.permissao === 'criacao')
+        .map(u => u.email);
+    console.log('Permissoes atualizadas - leitura:', window.USUARIOS_SOMENTE_LEITURA, '- criacao:', window.USUARIOS_SOMENTE_CRIACAO);
+}
+
+window.isSomenteCriacao = function() {
+    const user = window._fbUser;
+    if (!user) return false;
+    return (window.USUARIOS_SOMENTE_CRIACAO || []).includes(user.email.toLowerCase());
+};
+
+// Carrega permissoes do Firebase ao iniciar
+window.addEventListener('load', async () => {
+    let t = 0;
+    while (!window.fbLoadObject && t++ < 50) await new Promise(r => setTimeout(r, 100));
+    try {
+        const dados = await window.fbLoadObject('config', 'usuarios_permissoes');
+        if (dados && dados.lista) {
+            atualizarPermissoesMemoria(dados.lista);
+            console.log('Permissoes carregadas do Firebase:', window.USUARIOS_SOMENTE_LEITURA);
+        }
+    } catch(e) {}
+});
+</script>
+</body>
